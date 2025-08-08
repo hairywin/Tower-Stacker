@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo!</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    --bg1:#cde7ff; --bg2:#f7efe3; --text:#2b2b2b;
+    --ground:#d2c3a4; --grass:#9dbc6f; --track:#b6a684;
+    --poo:#7b4a21; --pooEdge:#5e3a18;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body { height:100%; margin:0; background:var(--bg2); color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+  .wrap { position:fixed; inset:0; display:grid; grid-template-rows: 1fr auto; }
+  canvas { width:100%; height:100%; display:block; touch-action: manipulation; }
+  .hud { display:flex; gap:10px; align-items:center; justify-content:center; padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left); background: linear-gradient(180deg, #0000, #0001); }
+  .btn { border:0; border-radius:12px; padding:10px 14px; background:#ffd54f; font-weight:700; color:#3a300e; }
+  .btn:active { transform: translateY(1px) scale(.99); }
+  .muted { opacity:.7; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="900" height="420" aria-label="Brus Gotta Poo! Endless Runner"></canvas>
+  <div class="hud">
+    <button id="startBtn" class="btn">Start / Jump (Tap/Space)</button>
+    <button id="pauseBtn" class="btn" style="background:#b3e5fc;color:#0a2a3a">Pause (P)</button>
+    <span class="muted">Quick taps = small hops, hold for higher jumps. Avoid the 💩!</span>
+  </div>
+</div>
+<script>
+(()=>{
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+
+  // --- Load vector sprites ---
+  const dogRun1 = new Image(); dogRun1.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxODAnIGhlaWdodD0nMTIwJyB2aWV3Qm94PScwIDAgMTgwIDEyMCc+CiAgICAKPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJjb2F0IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjZDc5YTRhIi8+CiAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNiNTc3MmYiLz4KICA8L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0iYmVsbHkiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmNWQzOWEiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2U3Yjk2YyIvPgogIDwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KCiAgICA8ZyBzdHJva2U9IiM3NDRhMjIiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgICAgPHJlY3QgeD0iMzIiIHk9IjM4IiByeD0iMTgiIHJ5PSIxOCIgd2lkdGg9Ijc2IiBoZWlnaHQ9IjQ0IiBmaWxsPSJ1cmwoI2NvYXQpIi8+CiAgICAgIDxyZWN0IHg9IjU4IiB5PSI1OCIgcng9IjEwIiByeT0iMTAiIHdpZHRoPSIzNCIgaGVpZ2h0PSIyMCIgZmlsbD0idXJsKCNiZWxseSkiIHN0cm9rZT0ibm9uZSIvPgogICAgICA8cmVjdCB4PSI5OCIgeT0iMzQiIHJ4PSIxNCIgcnk9IjE0IiB3aWR0aD0iNDAiIGhlaWdodD0iMzYiIGZpbGw9InVybCgjY29hdCkiLz4KICAgICAgPHJlY3QgeD0iMTE2IiB5PSI1MCIgcng9IjgiIHJ5PSI4IiB3aWR0aD0iMjIiIGhlaWdodD0iMTYiIGZpbGw9InVybCgjYmVsbHkpIi8+CiAgICAgIDxjaXJjbGUgY3g9IjEzOCIgY3k9IjU4IiByPSI0IiBmaWxsPSIjMmIyYjJiIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPHBhdGggZD0iTTEwNiw0MCBROTYsNTYgMTEwLDY2IFExMTIsNTYgMTA2LDQwIFoiIGZpbGw9InVybCgjY29hdCkiLz4KICAgICAgPGNpcmNsZSBjeD0iMTIyIiBjeT0iNTAiIHI9IjMuMiIgZmlsbD0iIzFhMWExYSIgc3Ryb2tlPSJub25lIi8+CiAgICAgIDxwYXRoIGQ9Ik0zMiw1OCBRMTYsNDQgOCw1OCIgZmlsbD0ibm9uZSIvPgogICAgICA8cGF0aCBkPSJNNjAsOTIgTDYwLDExMiIgLz4KICAgICAgPHBhdGggZD0iTTQwLDkyIEw0MCwxMTIiIC8+CiAgICAgIDxjaXJjbGUgY3g9IjYwIiBjeT0iMTEyIiByPSI0IiBmaWxsPSIjMmIyYjJiIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPGNpcmNsZSBjeD0iNDAiIGN5PSIxMTIiIHI9IjQiIGZpbGw9IiMyYjJiMmIiIHN0cm9rZT0ibm9uZSIvPgogICAgPC9nPgogIDwvc3ZnPg==';
+  const dogRun2 = new Image(); dogRun2.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxODAnIGhlaWdodD0nMTIwJyB2aWV3Qm94PScwIDAgMTgwIDEyMCc+CiAgICAKPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJjb2F0IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjZDc5YTRhIi8+CiAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNiNTc3MmYiLz4KICA8L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0iYmVsbHkiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmNWQzOWEiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2U3Yjk2YyIvPgogIDwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KCiAgICA8ZyBzdHJva2U9IiM3NDRhMjIiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgICAgPHJlY3QgeD0iMzIiIHk9IjM4IiByeD0iMTgiIHJ5PSIxOCIgd2lkdGg9Ijc2IiBoZWlnaHQ9IjQ0IiBmaWxsPSJ1cmwoI2NvYXQpIi8+CiAgICAgIDxyZWN0IHg9IjU4IiB5PSI1OCIgcng9IjEwIiByeT0iMTAiIHdpZHRoPSIzNCIgaGVpZ2h0PSIyMCIgZmlsbD0idXJsKCNiZWxseSkiIHN0cm9rZT0ibm9uZSIvPgogICAgICA8cmVjdCB4PSI5OCIgeT0iMzQiIHJ4PSIxNCIgcnk9IjE0IiB3aWR0aD0iNDAiIGhlaWdodD0iMzYiIGZpbGw9InVybCgjY29hdCkiLz4KICAgICAgPHJlY3QgeD0iMTE2IiB5PSI1MCIgcng9IjgiIHJ5PSI4IiB3aWR0aD0iMjIiIGhlaWdodD0iMTYiIGZpbGw9InVybCgjYmVsbHkpIi8+CiAgICAgIDxjaXJjbGUgY3g9IjEzOCIgY3k9IjU4IiByPSI0IiBmaWxsPSIjMmIyYjJiIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPHBhdGggZD0iTTEwNiw0MCBROTYsNTYgMTEwLDY2IFExMTIsNTYgMTA2LDQwIFoiIGZpbGw9InVybCgjY29hdCkiLz4KICAgICAgPGNpcmNsZSBjeD0iMTIyIiBjeT0iNTAiIHI9IjMuMiIgZmlsbD0iIzFhMWExYSIgc3Ryb2tlPSJub25lIi8+CiAgICAgIDxwYXRoIGQ9Ik0zMiw1OCBRMTYsNDQgOCw1OCIgZmlsbD0ibm9uZSIvPgogICAgICA8cGF0aCBkPSJNNTUsOTIgTDYzLDExMiIgLz4KICAgICAgPHBhdGggZD0iTTQ1LDkyIEwzNywxMTIiIC8+CiAgICAgIDxjaXJjbGUgY3g9IjU1IiBjeT0iMTEyIiByPSI0IiBmaWxsPSIjMmIyYjJiIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPGNpcmNsZSBjeD0iNDUiIGN5PSIxMTIiIHI9IjQiIGZpbGw9IiMyYjJiMmIiIHN0cm9rZT0ibm9uZSIvPgogICAgPC9nPgogIDwvc3ZnPg==';
+  const dogJump = new Image(); dogJump.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxODAnIGhlaWdodD0nMTIwJyB2aWV3Qm94PScwIDAgMTgwIDEyMCc+CiAgICAKPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJjb2F0IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjZDc5YTRhIi8+CiAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNiNTc3MmYiLz4KICA8L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0iYmVsbHkiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmNWQzOWEiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2U3Yjk2YyIvPgogIDwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KCiAgICA8ZyBzdHJva2U9IiM3NDRhMjIiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgICAgPHJlY3QgeD0iMzIiIHk9IjM4IiByeD0iMTgiIHJ5PSIxOCIgd2lkdGg9Ijc2IiBoZWlnaHQ9IjQ0IiBmaWxsPSJ1cmwoI2NvYXQpIi8+CiAgICAgIDxyZWN0IHg9IjU4IiB5PSI1OCIgcng9IjEwIiByeT0iMTAiIHdpZHRoPSIzNCIgaGVpZ2h0PSIyMCIgZmlsbD0idXJsKCNiZWxseSkiIHN0cm9rZT0ibm9uZSIvPgogICAgICA8cmVjdCB4PSI5OCIgeT0iMzQiIHJ4PSIxNCIgcnk9IjE0IiB3aWR0aD0iNDAiIGhlaWdodD0iMzYiIGZpbGw9InVybCgjY29hdCkiLz4KICAgICAgPHJlY3QgeD0iMTE2IiB5PSI1MCIgcng9IjgiIHJ5PSI4IiB3aWR0aD0iMjIiIGhlaWdodD0iMTYiIGZpbGw9InVybCgjYmVsbHkpIi8+CiAgICAgIDxjaXJjbGUgY3g9IjEzOCIgY3k9IjU4IiByPSI0IiBmaWxsPSIjMmIyYjJiIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPHBhdGggZD0iTTEwNiw0MCBROTYsNTYgMTEwLDY2IFExMTIsNTYgMTA2LDQwIFoiIGZpbGw9InVybCgjY29hdCkiLz4KICAgICAgPGNpcmNsZSBjeD0iMTIyIiBjeT0iNTAiIHI9IjMuMiIgZmlsbD0iIzFhMWExYSIgc3Ryb2tlPSJub25lIi8+CiAgICAgIDxwYXRoIGQ9Ik0zMiw1OCBRMTYsNDQgOCw1OCIgZmlsbD0ibm9uZSIvPgogICAgICA8cGF0aCBkPSJNNTgsOTIgTDYyLDEwOCIgLz4KICAgICAgPHBhdGggZD0iTTQyLDkyIEwzOCwxMDgiIC8+CiAgICAgIDxjaXJjbGUgY3g9IjU4IiBjeT0iMTEyIiByPSI0IiBmaWxsPSIjMmIyYjJiIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPGNpcmNsZSBjeD0iNDIiIGN5PSIxMTIiIHI9IjQiIGZpbGw9IiMyYjJiMmIiIHN0cm9rZT0ibm9uZSIvPgogICAgPC9nPgogIDwvc3ZnPg==';
+
+  function fit() {
+    const ratio = Math.min(window.devicePixelRatio || 1.5, 2);
+    const cssW = window.innerWidth;
+    const cssH = window.innerHeight - 64; // hud
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width = Math.round(cssW * ratio);
+    canvas.height = Math.round(cssH * ratio);
+    scale = ratio;
+  }
+  let scale = 1;
+  window.addEventListener('resize', fit, {passive:true});
+  fit();
+
+  // ----- Constants -----
+  const GROUND_Y = ()=> canvas.height * 0.78;
+  const GRAVITY = 2900;
+  const JUMP_V0 = -760;
+  const HOLD_ACCEL = -3200;
+  const HOLD_MAX = 0.18;
+  const SCROLL_BASE = 520;
+  const SPEED_TIME_INC = 44;
+  const SPEED_SCORE_INC = 14;
+  const DOG_X = ()=>canvas.width*0.2;
+
+  // ----- State -----
+  let running=false, paused=false, last=0, t=0, score=0, shakeT=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
+  let dog, obstacles, clouds, hills1, hills2, particles=[], gameOver=false;
+  let jumpHeld=false;
+
+  function reset() {
+    running=false; paused=false; gameOver=false; t=0; score=0; jumpHeld=false; shakeT=0;
+    dog = { x:DOG_X(), y:GROUND_Y()-64, vy:0, w:132, h:88, onGround:true, legT:0, jumpHoldT:0 };
+    obstacles=[];
+    clouds = new Array(6).fill(0).map((_,i)=>({x: i*320 + Math.random()*220, y: 60+Math.random()*130, s: 18+Math.random()*24 }));
+    hills1 = new Array(5).fill(0).map((_,i)=>({x:i*400, h: 90+Math.random()*40}));
+    hills2 = new Array(5).fill(0).map((_,i)=>({x:i*500, h: 140+Math.random()*60}));
+    spawnObstacle(canvas.width + 900 + Math.random()*400);
+    drawIntro();
+  }
+
+  function start(){ if(running && !gameOver) return; running=true; gameOver=false; paused=false; last=performance.now(); requestAnimationFrame(loop); }
+
+  function togglePause(){ if(!running || gameOver) return;
+    paused=!paused; if(!paused){ last=performance.now(); requestAnimationFrame(loop);} else { drawPause(); } }
+
+  function pressJump(){ if(!running){ start(); return; } if(paused||gameOver) return;
+    if(dog.onGround){ dog.vy = JUMP_V0; dog.onGround=false; dog.jumpHoldT=0; jumpHeld=true; }
+  }
+  function releaseJump(){ jumpHeld=false; }
+
+  // ----- Obstacles -----
+  function spawnObstacle(startX){
+    const size = 34 + Math.random()*26;
+    obstacles.push({ x:startX, y:GROUND_Y(), w:size*1.3, h:size, passed:false });
+    if(Math.random()<0.28){ const gap= 170+Math.random()*70;
+      obstacles.push({ x:startX+gap, y:GROUND_Y(), w:size*1.15, h:size*0.95, passed:false });
+    }
+  }
+
+  // ----- Loop -----
+  function loop(now){
+    if(!running || paused) return;
+    const dt = Math.min((now-last)/1000, 1/30);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt){
+    t += dt;
+    const speed = SCROLL_BASE + t*SPEED_TIME_INC + score*SPEED_SCORE_INC;
+
+    // dog physics
+    dog.vy += GRAVITY * dt;
+    if(jumpHeld && !dog.onGround && dog.jumpHoldT < HOLD_MAX && dog.vy < 0){ dog.vy += HOLD_ACCEL*dt; dog.jumpHoldT+=dt; }
+    dog.y += dog.vy * dt;
+    dog.legT += dt * (dog.onGround ? (7 + speed*0.0032) : 4.2);
+    if(dog.y + dog.h/2 >= GROUND_Y()){ dog.y=GROUND_Y()-dog.h/2; if(!dog.onGround) { landDust(); shakeT=0.08; } dog.vy=0; dog.onGround=true; dog.jumpHoldT=0; }
+
+    // parallax layers
+    for (let c of clouds){ c.x -= speed*0.12*dt; if(c.x<-160){ c.x+=canvas.width+360; c.y=40+Math.random()*140; } }
+    for (let h of hills2){ h.x -= speed*0.18*dt; if(h.x<-520) h.x+=canvas.width+520; }
+    for (let h of hills1){ h.x -= speed*0.24*dt; if(h.x<-420) h.x+=canvas.width+420; }
+
+    // obstacles
+    if(obstacles.length===0 || obstacles[obstacles.length-1].x < canvas.width - 560){ spawnObstacle(canvas.width + 280 + Math.random()*280); }
+    for (let o of obstacles){ o.x -= speed * dt; if(!o.passed && o.x + o.w/2 < dog.x - dog.w/2){ o.passed=true; score++; pooSteam(o.x, o.y-10); } }
+    if(obstacles.length && obstacles[0].x + obstacles[0].w < -60) obstacles.shift();
+
+    // collisions
+    const dogBox = {x:dog.x-dog.w*0.30, y:dog.y-dog.h*0.44, w:dog.w*0.60, h:dog.h*0.88};
+    for (let o of obstacles){
+      const ob = {x:o.x-o.w*0.5, y:o.y-o.h, w:o.w, h:o.h};
+      if(aabb(dogBox, ob)) return doGameOver();
+    }
+
+    // particles
+    for (let p of particles){ p.vy += p.g; p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt; p.rot += p.vr*dt; }
+    particles = particles.filter(p=> p.life>0 && p.y < GROUND_Y()+30 );
+
+    if(shakeT>0) shakeT = Math.max(0, shakeT - dt);
+  }
+
+  function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+  function pooSteam(x,y){
+    for(let i=0;i<3;i++) particles.push({x,y, vx:(Math.random()*2-1)*20, vy:-40-Math.random()*20, g:10, life:0.8, rot:0, vr:0, type:'steam'});
+  }
+  function landDust(){
+    const y=GROUND_Y();
+    for(let i=0;i<8;i++) particles.push({x:dog.x + (Math.random()*2-1)*20, y:y-4, vx:(Math.random()*2-1)*180, vy:-140-Math.random()*80, g:900, life:0.35+Math.random()*0.2, rot:0, vr:(Math.random()*2-1)*10, type:'dust'});
+  }
+
+  function doGameOver(){
+    running=false; gameOver=true; paused=false;
+    best = Math.max(best, score);
+    localStorage.setItem('bru_best', best);
+    drawGameOver();
+  }
+
+  // ----- Render -----
+  function render(){
+    if(shakeT>0){ ctx.save(); ctx.translate( (Math.random()*2-1)*6*scale, (Math.random()*2-1)*4*scale ); }
+    drawSky();
+    drawHills(hills2, '#c8d4e7');
+    drawHills(hills1, '#b9d2e8');
+    drawGround();
+    for (let o of obstacles) drawPoo(o);
+    drawDog();
+    for (let p of particles) drawParticle(p);
+    drawScore();
+    if(shakeT>0) ctx.restore();
+  }
+
+  function drawSky(){
+    const g = ctx.createLinearGradient(0,0,0,canvas.height);
+    g.addColorStop(0,'#cde7ff'); g.addColorStop(1,'#f7efe3');
+    ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+    for (let c of clouds) drawCloud(c.x, c.y, c.s);
+  }
+
+  function drawHills(list, color){
+    ctx.fillStyle=color;
+    const y=GROUND_Y();
+    for (let h of list){
+      ctx.beginPath();
+      ctx.moveTo(h.x-300, y);
+      ctx.quadraticCurveTo(h.x, y-h.h, h.x+300, y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  function drawGround(){
+    const y=GROUND_Y();
+    ctx.fillStyle='var(--ground)'; ctx.fillRect(0, y, canvas.width, canvas.height-y);
+    ctx.fillStyle='var(--grass)'; ctx.fillRect(0, y-6, canvas.width, 6);
+    ctx.fillStyle='var(--track)';
+    const step=28, off=(t*140)%step;
+    for(let x=-step;x<canvas.width+step;x+=step) ctx.fillRect(Math.floor(x-off), y+8, 14, 6);
+  }
+
+  function drawCloud(x,y,r){
+    ctx.fillStyle='#fff';
+    ctx.beginPath();
+    ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.arc(x+r*0.9,y- r*0.5,r*0.85,0,Math.PI*2);
+    ctx.arc(x+r*1.8,y,r*1.1,0,Math.PI*2);
+    ctx.arc(x+r*0.9,y+r*0.5,r*0.9,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawPoo(o){
+    const x=o.x, y=o.y, w=o.w, h=o.h;
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle='rgba(0,0,0,.15)'; ctx.beginPath(); ctx.ellipse(0, -4, w*0.4, 6, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='var(--poo)'; ctx.strokeStyle='var(--pooEdge)'; ctx.lineWidth=3*scale;
+    roundBlob(-w*0.5, -h*0.3, w, h*0.34, 12);
+    roundBlob(-w*0.36, -h*0.58, w*0.72, h*0.30, 10);
+    roundBlob(-w*0.18, -h*0.86, w*0.36, h*0.26, 10);
+    ctx.fillStyle='rgba(255,255,255,.08)';
+    roundBlob(-w*0.2, -h*0.78, w*0.18, h*0.10, 8);
+    ctx.restore();
+  }
+  function roundBlob(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r); ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.fill(); ctx.stroke(); }
+
+  function drawParticle(p){
+    if(p.type==='steam'){ ctx.fillStyle='rgba(160,120,80,.5)'; ctx.beginPath(); ctx.arc(p.x,p.y, 5*scale, 0, Math.PI*2); ctx.fill(); }
+    else { ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillStyle='rgba(120,100,80,.6)'; ctx.fillRect(-3*scale,-3*scale,6*scale,6*scale); ctx.restore(); }
+  }
+
+  function drawDog(){
+    const x=dog.x, y=dog.y, w=dog.w, h=dog.h;
+    const frame = dog.onGround ? ((Math.floor(dog.legT*8)%2)===0 ? dogRun1 : dogRun2) : dogJump;
+    const img = frame;
+    ctx.save();
+    ctx.translate(x,y);
+    const tilt = Math.max(-0.16, Math.min(0.20, dog.vy/1600));
+    ctx.rotate(tilt);
+    ctx.drawImage(img, -w*0.5, -h*0.5, w, h);
+    ctx.restore();
+  }
+
+  function drawScore(){
+    const pad = 14*scale;
+    ctx.fillStyle='rgba(0,0,0,.25)';
+    ctx.fillRect(pad, pad, 200*scale, 62*scale);
+    ctx.fillStyle='#fff';
+    ctx.font = `${{24*scale}}px system-ui, sans-serif`;
+    ctx.fillText('Score: '+score, pad+10*scale, pad+26*scale);
+    ctx.fillText('Best: '+best, pad+10*scale, pad+52*scale);
+  }
+
+  function drawCenterCard(title, body){
+    const w= Math.min(canvas.width*0.82, 560*scale);
+    const h= 210*scale;
+    const x= (canvas.width-w)/2;
+    const y= (canvas.height-h)/2;
+    ctx.fillStyle='rgba(38,50,56,.85)';
+    roundedRect(x,y,w,h,18*scale);
+    ctx.fillStyle='#fff';
+    ctx.font = `${{28*scale}}px system-ui, sans-serif`;
+    ctx.fillText(title, x+20*scale, y+44*scale);
+    ctx.font = `${{18*scale}}px system-ui, sans-serif`;
+    const lines = body.split('\n');
+    lines.forEach((ln,i)=> ctx.fillText(ln, x+20*scale, y+86*scale+i*28*scale));
+  }
+
+  function drawIntro(){
+    render();
+    ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    drawCenterCard("Brus Gotta Poo!", "Tap to Begin");
+  }
+
+  function drawPause(){
+    render();
+    ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    drawCenterCard("Paused", "Tap or press P to resume.");
+  }
+
+  function drawGameOver(){
+    render();
+    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    drawCenterCard("Game Over 💩", `Score: ${score}\nBest: ${best}\nTap to restart.`);
+  }
+
+  // ----- Input -----
+  window.addEventListener('keydown', (e)=>{
+    if(e.code==='Space'){ e.preventDefault(); pressJump(); }
+    else if(e.key?.toLowerCase()==='p') togglePause();
+    else if(e.key?.toLowerCase()==='r') reset();
+    else if(e.key?.toLowerCase()==='s') start();
+  }, {passive:false});
+  window.addEventListener('keyup', (e)=>{ if(e.code==='Space'){ e.preventDefault(); releaseJump(); }}, {passive:false});
+
+  canvas.addEventListener('pointerdown', (e)=>{ e.preventDefault(); if(gameOver){ reset(); start(); } else pressJump(); }, {passive:false});
+  canvas.addEventListener('pointerup', (e)=>{ e.preventDefault(); releaseJump(); }, {passive:false});
+  canvas.addEventListener('pointercancel', ()=> releaseJump(), {passive:true});
+  startBtn.addEventListener('click', ()=>{ pressJump(); });
+  pauseBtn.addEventListener('click', togglePause);
+
+  window.addEventListener('touchmove', (e)=>{ e.preventDefault(); }, {passive:false});
+
+  reset();
+})();
+</script>
+</body>
+</html>
