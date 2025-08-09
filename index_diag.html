@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo! (DIAG)</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-status-bar-style" content="black-translucent">
+<style>
+  :root { --bg1:#cde7ff; --bg2:#f7efe3; --text:#2b2b2b; --ground:#d2c3a4; --grass:#9dbc6f; --track:#b6a684; --poo:#7b4a21; --pooEdge:#5e3a18; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body { height:100%; margin:0; background:var(--bg2); color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+  .wrap { position:fixed; inset:0; display:grid; grid-template-rows: 1fr auto; }
+  canvas { width:100%; height:100%; display:block; touch-action: manipulation; }
+  .hud { display:flex; gap:10px; align-items:center; justify-content:center; padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left); background: linear-gradient(180deg, #0000, #0001); }
+  .btn { border:0; border-radius:12px; padding:10px 14px; background:#ffd54f; font-weight:700; color:#3a300e; }
+  .btn:active { transform: translateY(1px) scale(.99); }
+  .overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:rgba(0,0,0,.5); color:#fff; text-align:center; padding:20px; }
+  .card { background:#263238ee; padding:20px 26px; border-radius:16px; max-width:min(560px, 86vw); box-shadow:0 10px 30px #0007; }
+  .title { font-size:28px; font-weight:900; margin-bottom:6px; }
+  .subtitle { font-size:18px; opacity:.95; margin-bottom:10px; }
+  .hidden { display:none; }
+  /* ULTRA-VISIBLE DEBUG */
+  .debug { position: fixed; top: 6px; right: 8px; background: #d32f2f; color:#fff; padding:10px 12px; border-radius:12px; font: 14px/1.3 system-ui, sans-serif; box-shadow:0 4px 10px #0006; z-index:9999; }
+  .debug b { font-weight:900; }
+  .version { position: fixed; left: 8px; bottom: 8px; background:#000; color:#0f0; padding:6px 10px; border-radius:10px; font:13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; opacity:.9; z-index:9999; }
+  .blink { animation: blink 1s infinite; }
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:.3} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="900" height="420" aria-label="Brus Gotta Poo! Endless Runner"></canvas>
+
+  <div id="intro" class="overlay">
+    <div class="card">
+      <div class="title">Brus Gotta Poo!</div>
+      <div class="subtitle">Tap to Begin</div>
+      <button id="startBig" class="btn">Start</button>
+    </div>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <div class="card">
+      <div class="title">Game Over 💩</div>
+      <div id="scoreline" class="subtitle">Score: 0 • Best: 0</div>
+      <button id="restartBig" class="btn">Restart</button>
+    </div>
+  </div>
+
+  <div class="hud">
+    <button id="startBtn" class="btn">Start / Jump (Tap/Space)</button>
+    <span class="subtitle" style="color:#000;opacity:.7;">Quick taps = small hops, hold to jump higher. Avoid the 💩</span>
+  </div>
+
+  <div id="debug" class="debug">state:<b>init</b> • t=<b>0.00</b> • raf:<b>off</b> <span class="blink">●</span></div>
+  <div id="version" class="version">BUILD DIAG v1 — <span id="ts"></span></div>
+</div>
+<script>
+(()=>{
+  // stamp version time (cache-bust visual)
+  document.getElementById('ts').textContent = new Date().toLocaleString();
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const intro = document.getElementById('intro');
+  const over = document.getElementById('over');
+  const scoreline = document.getElementById('scoreline');
+  const startBig = document.getElementById('startBig');
+  const restartBig = document.getElementById('restartBig');
+  const startBtn = document.getElementById('startBtn');
+  const debugEl = document.getElementById('debug');
+
+  // Fit canvas
+  let scale = 1;
+  function fit(){
+    const ratio = Math.min(window.devicePixelRatio || 1.5, 2);
+    const cssW = window.innerWidth;
+    const cssH = window.innerHeight - 64;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width = Math.round(cssW * ratio);
+    canvas.height = Math.round(cssH * ratio);
+    scale = ratio;
+  }
+  window.addEventListener('resize', fit, {passive:true});
+  fit();
+
+  // Game constants
+  const GROUND_Y = ()=> canvas.height * 0.78;
+  const GRAVITY = 2900;
+  const JUMP_V0 = -760;
+  const HOLD_ACCEL = -3200;
+  const HOLD_MAX = 0.18;
+  const SCROLL_BASE = 520;
+  const SPEED_TIME_INC = 44;
+  const SPEED_SCORE_INC = 14;
+  const DOG_X = ()=>canvas.width*0.2;
+
+  // State
+  let running=false, last=0, t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
+  let dog, obstacles, clouds, hills1, hills2, gameOver=false, jumpHeld=false;
+  let rafId = 0;
+
+  function debug(state){
+    debugEl.innerHTML = `state:<b>${state}</b> • t=<b>${t.toFixed(2)}</b> • raf:<b>${rafId? 'on':'off'}</b> <span class="blink">●</span>`;
+  }
+
+  function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r); ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.fill(); ctx.stroke(); }
+  function blob(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y, x+w,y+h, r); ctx.arcTo(x+w,y+h, x,y+h, r); ctx.arcTo(x,y+h, x,y, r); ctx.arcTo(x,y, x+w,y, r); ctx.fill(); ctx.stroke(); }
+  function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+  function drawDog(x,y,w,h,vy,legT,onGround){
+    ctx.save();
+    ctx.translate(x,y);
+    const tilt = Math.max(-0.16, Math.min(0.20, vy/1600));
+    ctx.rotate(tilt);
+    ctx.lineWidth = 3*scale;
+    ctx.fillStyle = '#d79a4a'; ctx.strokeStyle = '#8b5e34';
+    roundRect(-w*0.34, -h*0.26, w*0.68, h*0.52, 16);
+    ctx.fillStyle = '#f0c98b'; roundRect(-w*0.18, -h*0.06, w*0.32, h*0.22, 10);
+    ctx.fillStyle = '#d79a4a'; roundRect(w*0.22, -h*0.3, w*0.34, h*0.36, 12); roundRect(w*0.28, -h*0.12, w*0.26, h*0.18, 10);
+    ctx.fillStyle='#2b2b2b'; ctx.beginPath(); ctx.arc(w*0.50, -h*0.02, 4*scale, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#8b5e34'; ctx.fillStyle='#d79a4a'; ctx.beginPath(); ctx.moveTo(w*0.26, -h*0.24); ctx.quadraticCurveTo(w*0.16, -h*0.06, w*0.28, 0); ctx.quadraticCurveTo(w*0.30, -h*0.08, w*0.26, -h*0.24); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(w*0.36, -h*0.12, 3.2*scale, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#8b5e34'; ctx.beginPath(); ctx.moveTo(-w*0.34, -h*0.06); ctx.quadraticCurveTo(-w*0.52, -h*0.22 + Math.sin(legT*4)*5*scale, -w*0.66, -h*0.02); ctx.stroke();
+    const phase = Math.sin(legT)*0.9*(onGround?1:0.6); drawLeg(w*0.10, h*0.22, 14*scale, 18*scale, phase); drawLeg(-w*0.12, h*0.22, 14*scale, 18*scale, -phase);
+    ctx.restore();
+  }
+  function drawLeg(x,y,rx,ry,phase){ ctx.save(); ctx.translate(x,y); ctx.rotate(phase*0.35); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,ry); ctx.stroke(); ctx.beginPath(); ctx.arc(0, ry, 4.5*scale, 0, Math.PI*2); ctx.fill(); ctx.restore(); }
+
+  function drawPoo(x,y,w,h){
+    ctx.save(); ctx.translate(x,y);
+    ctx.fillStyle='rgba(0,0,0,.15)'; ctx.beginPath(); ctx.ellipse(0, -4, w*0.4, 6, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='var(--poo)'; ctx.strokeStyle='var(--pooEdge)'; ctx.lineWidth=3*scale;
+    blob(-w*0.5, -h*0.3, w, h*0.34, 12);
+    blob(-w*0.36, -h*0.58, w*0.72, h*0.30, 10);
+    blob(-w*0.18, -h*0.86, w*0.36, h*0.26, 10);
+    ctx.restore();
+  }
+
+  function drawScene(){
+    // sky
+    const g = ctx.createLinearGradient(0,0,0,canvas.height);
+    g.addColorStop(0,'#cde7ff'); g.addColorStop(1,'#f7efe3');
+    ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+    // hills background just to show motion even without obstacles
+    const y=GROUND_Y();
+    ctx.fillStyle='#c8d4e7'; ctx.fillRect(0, y-160, canvas.width, 160);
+  }
+
+  // Init/reset
+  function reset(){
+    running=false; gameOver=false; t=0; score=0; jumpHeld=false;
+    dog = { x:DOG_X(), y:GROUND_Y()-64, vy:0, w:132, h:88, onGround:true, legT:0, jumpHoldT:0 };
+    obstacles=[]; clouds=[]; hills1=[]; hills2=[];
+    // Always at least one visible obstacle to confirm motion
+    const startX = canvas.width + 300;
+    obstacles.push({ x:startX, y:GROUND_Y(), w:60, h:40, passed:false });
+    show(intro);
+    drawScene(); drawDog(dog.x, dog.y, dog.w, dog.h, dog.vy, dog.legT, dog.onGround);
+    debug('intro');
+  }
+
+  function start(){
+    running=true; gameOver=false; hideAll();
+    last = performance.now();
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(loop);
+    debug('running');
+  }
+
+  // Loop
+  function loop(now){
+    if(!running) return;
+    const dt = Math.min((now-last)/1000, 1/30); last = now;
+    t += dt;
+    // simple motion: obstacle slides left
+    for (let o of obstacles){ o.x -= (SCROLL_BASE + t*80) * dt; }
+    // physics
+    dog.vy += GRAVITY * dt;
+    if(jumpHeld && !dog.onGround && dog.jumpHoldT < HOLD_MAX && dog.vy < 0){ dog.vy += HOLD_ACCEL*dt; dog.jumpHoldT+=dt; }
+    dog.y += dog.vy * dt;
+    if(dog.y + dog.h/2 >= GROUND_Y()){ dog.y=GROUND_Y()-dog.h/2; dog.vy=0; dog.onGround=true; dog.jumpHoldT=0; }
+    // render
+    drawScene();
+    // ground line
+    ctx.fillStyle='#9dbc6f'; ctx.fillRect(0, GROUND_Y()-6, canvas.width, 6);
+    ctx.fillStyle='#d2c3a4'; ctx.fillRect(0, GROUND_Y(), canvas.width, canvas.height-GROUND_Y());
+    for (let o of obstacles) drawPoo(o.x, o.y, o.w, o.h);
+    drawDog(dog.x, dog.y, dog.w, dog.h, dog.vy, t*6, dog.onGround);
+    // debug update
+    debug('running');
+    rafId = requestAnimationFrame(loop);
+  }
+
+  // Overlay helpers
+  function hideAll(){ intro.classList.add('hidden'); over.classList.add('hidden'); }
+  function show(el){ hideAll(); el.classList.remove('hidden'); }
+
+  // Input
+  function press(){ if(!running){ start(); return; } if(gameOver) return; if(dog.onGround){ dog.vy=JUMP_V0; dog.onGround=false; dog.jumpHoldT=0; jumpHeld=true; } }
+  function release(){ jumpHeld=false; }
+
+  // Auto-start on first tap/click anywhere
+  document.addEventListener('pointerdown', ()=>{ if(!running) start(); }, {passive:false});
+  startBtn.addEventListener('click', ()=>{ if(!running) start(); else press(); });
+  startBig.addEventListener('click', ()=> start());
+  restartBig.addEventListener('click', ()=>{ reset(); start(); });
+
+  window.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); press(); } }, {passive:false});
+  window.addEventListener('keyup', (e)=>{ if(e.code==='Space'){ e.preventDefault(); release(); } }, {passive:false});
+  canvas.addEventListener('pointerdown', (e)=>{ e.preventDefault(); press(); }, {passive:false});
+  canvas.addEventListener('pointerup', (e)=>{ e.preventDefault(); release(); }, {passive:false});
+
+  reset();
+})();
+</script>
+</body>
+</html>
