@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo!</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    --sky1:#cfe9ff; --sky2:#f7efe3; --ground:#d2c3a4; --grass:#9dbc6f; --track:#b6a684;
+    --poo:#7b4a21; --pooEdge:#5e3a18; --card:#263238ee; --text:#fff; --accent:#ffd54f;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{height:100%;margin:0;background:var(--sky2);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .wrap{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto}
+  canvas{width:100%;height:100%;display:block;touch-action:manipulation;background:linear-gradient(var(--sky1),var(--sky2))}
+  .hud{display:flex;gap:10px;align-items:center;justify-content:center;padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left);background:linear-gradient(180deg,#0000,#0001)}
+  .btn{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);font-weight:800;color:#3a300e}
+  .btn:active{transform:translateY(1px) scale(.99)}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .card{background:var(--card);color:var(--text);padding:22px 28px;border-radius:18px;box-shadow:0 14px 40px #0006;text-align:center;max-width:min(560px,86vw)}
+  .title{font-size:28px;font-weight:900;margin:0 0 6px 0}
+  .subtitle{font-size:18px;opacity:.95;margin:0 0 12px 0}
+  .hidden{display:none!important}
+  .scoreHud{position:fixed;left:12px;top:8px;background:rgba(0,0,0,.25);color:#fff;padding:10px 12px;border-radius:12px;font-weight:700;z-index:20}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="900" height="420" aria-label="Brus Gotta Poo! Endless Runner"></canvas>
+
+  <div id="intro" class="overlay">
+    <div class="card">
+      <div class="title">Brus Gotta Poo!</div>
+      <div class="subtitle">Tap to Begin</div>
+      <button id="startBtn" class="btn">Start</button>
+    </div>
+  </div>
+
+  <div id="gameOver" class="overlay hidden">
+    <div class="card">
+      <div class="title">Game Over 💩</div>
+      <div id="finalScore" class="subtitle"></div>
+      <button id="restartBtn" class="btn">Restart</button>
+    </div>
+  </div>
+
+  <div id="scoreHud" class="scoreHud">Score: 0 • Best: 0</div>
+  <div class="hud">
+    <button id="jumpBtn" class="btn">Jump (Tap/Space)</button>
+    <span class="subtitle" style="color:#000;opacity:.75">Quick taps = small hops, hold for higher jumps.</span>
+  </div>
+</div>
+
+<script>
+(()=>{
+  // Canvas & sizing
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+  let groundY = canvas.height * 0.80;
+  function resize(){
+    dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    canvas.width  = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    groundY = canvas.height * 0.80;
+  }
+  window.addEventListener('resize', resize, {passive:true}); resize();
+
+  // DOM
+  const intro = document.getElementById('intro');
+  const over  = document.getElementById('gameOver');
+  const startBtn = document.getElementById('startBtn');
+  const restartBtn = document.getElementById('restartBtn');
+  const jumpBtn = document.getElementById('jumpBtn');
+  const scoreHud = document.getElementById('scoreHud');
+  const show = el => el.classList.remove('hidden');
+  const hide = el => el.classList.add('hidden');
+
+  // State
+  let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
+  const G = 3000, HOLD_MAX=0.18;
+  let jumpHold=false, holdTime=0, speed=500;
+  let poops=[];
+
+  // Runner
+  const dog={ x:0, y:0, w:180, h:120, vy:0, onGround:true, legT:0, frame:0 };
+  const DOG_X = ()=> canvas.width*0.2;
+
+  // Spawning (v3.3 aggressive)
+  let minGap=1.4, maxGap=2.0, spawnTimer=0, nextGap=rand(minGap,maxGap);
+  function rand(a,b){ return a + Math.random()*(b-a); }
+  function aabb(dx,dy,dw,dh,px,pyTop,pw,phBottom){ return dx < px + pw && dx + dw > px && dy < pyTop + phBottom && dy + dh > pyTop; }
+
+  // Load sprite externally
+  const rawImg = new Image();
+  rawImg.src = 'bru_sprite.png'; // <-- this file must be in the repo root with index.html
+  let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
+  rawImg.onload = ()=>{
+    // Chroma key: make orange bg transparent
+    const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
+    const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
+    const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i], g=d[i+1], b=d[i+2];
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const v=max/255, s=max===0?0:(max-min)/max;
+      let h=0;
+      if(max!==min){
+        if(max===r) h=(g-b)/(max-min);
+        else if(max===g) h=2+(b-r)/(max-min);
+        else h=4+(r-g)/(max-min);
+        h*=60; if(h<0) h+=360;
+      }
+      if(h>12 && h<40 && s>0.35 && v>0.25){
+        if(r>60 && g>40 && b<80){ d[i+3]=0; }
+      }
+    }
+    octx.putImageData(img,0,0);
+    cleanSprite=off;
+    frameW=Math.floor(off.width/cols);
+    frameH=Math.floor(off.height/rows);
+  };
+
+  // Game flow
+  function reset(){
+    state='intro'; t=0; score=0; speed=500;
+    minGap=1.4; maxGap=2.0; spawnTimer=0; nextGap=rand(minGap,maxGap);
+    poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.legT=0; dog.frame=0;
+    show(intro); hide(over); updateHud(); render();
+  }
+  function start(){
+    state='running'; t=0; score=0; spawnTimer=0; nextGap=rand(minGap,maxGap);
+    poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.legT=0; dog.frame=0;
+    hide(intro); hide(over);
+  }
+  function gameOver(){
+    state='over'; if(score>best){ best=score; localStorage.setItem('bru_best',best); }
+    document.getElementById('finalScore').textContent = `Score: ${score} • Best: ${best}`;
+    show(over);
+  }
+  function spawnPoo(){
+    poops.push({ x: canvas.width + 50, y: groundY, w: 52, h: 42 });
+    const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
+    if(Math.random() < chance){
+      const tight = Math.min(1, t/30);
+      const dmin = 54 - 30*tight;
+      const dmax = 90 - 42*tight;
+      const dx = dmin + Math.random()*(dmax - dmin);
+      poops.push({ x: canvas.width + 50 + dx, y: groundY, w: 48, h: 38 });
+    }
+  }
+
+  // Update & draw
+  const clouds = new Array(6).fill(0).map((_,i)=>({x: i*360 + Math.random()*240, y: 60+Math.random()*120, r: 20+Math.random()*26 }));
+  const hills1 = new Array(5).fill(0).map((_,i)=>({x:i*420, h: 90+Math.random()*40}));
+  const hills2 = new Array(5).fill(0).map((_,i)=>({x:i*520, h: 140+Math.random()*60}));
+
+  function update(dt){
+    if(state!=='running') return;
+    t+=dt;
+    for (let c of clouds){ c.x -= (520 + t*34)*0.12*dt; if(c.x<-160){ c.x+=canvas.width+360; c.y=40+Math.random()*140; } }
+    for (let h of hills2){ h.x -= (520 + t*34)*0.18*dt; if(h.x<-520) h.x+=canvas.width+520; }
+    for (let h of hills1){ h.x -= (520 + t*34)*0.24*dt; if(h.x<-420) h.x+=canvas.width+420; }
+    speed += dt*34;
+    minGap = Math.max(0.35, minGap - dt*0.06);
+    maxGap = Math.max(minGap + 0.22, maxGap - dt*0.052);
+    spawnTimer += dt; if(spawnTimer >= nextGap){ spawnPoo(); spawnTimer=0; nextGap = rand(minGap, maxGap); }
+    dog.vy += G*dt;
+    if(jumpHold && !dog.onGround && holdTime < HOLD_MAX && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
+    dog.y += dog.vy*dt; dog.legT += dt * (dog.onGround ? (8 + speed*0.0035) : 5);
+    if(dog.y + dog.h/2 >= groundY){ dog.y = groundY - dog.h/2; dog.vy=0; dog.onGround=true; holdTime=0; }
+    for(const p of poops){ p.x -= speed*dt; } poops = poops.filter(p => p.x + p.w > 0);
+    const dx = dog.x - dog.w/2, dy = dog.y - dog.h/2;
+    for(const p of poops){ const px=p.x, pw=p.w, pyTop=p.y - p.h; if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){ return gameOver(); } }
+    score += Math.floor(dt*100);
+  }
+
+  function drawSky(){
+    for (let c of clouds){
+      ctx.fillStyle='#fff';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*0.9, c.y- c.r*0.5, c.r*0.85, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*1.8, c.y, c.r*1.1, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*0.9, c.y+c.r*0.5, c.r*0.9, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+  function drawHills(list, color){
+    ctx.fillStyle=color;
+    for (let h of list){
+      ctx.beginPath();
+      ctx.moveTo(h.x-300, groundY);
+      ctx.quadraticCurveTo(h.x, groundY-h.h, h.x+300, groundY);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  function drawGround(){
+    const root = document.documentElement;
+    ctx.fillStyle=getComputedStyle(root).getPropertyValue('--ground').trim()||'#d2c3a4';
+    ctx.fillRect(0, groundY, canvas.width, canvas.height-groundY);
+    ctx.fillStyle=getComputedStyle(root).getPropertyValue('--grass').trim()||'#9dbc6f';
+    ctx.fillRect(0, groundY-6, canvas.width, 6);
+    ctx.fillStyle=getComputedStyle(root).getPropertyValue('--track').trim()||'#b6a684';
+    const step=28, off=(t*140)%step;
+    for(let x=-step;x<canvas.width+step;x+=step) ctx.fillRect(Math.floor(x-off), groundY+8, 14, 6);
+  }
+  function drawDog(){
+    if(!cleanSprite) return;
+    const tilt = Math.max(-0.16, Math.min(0.20, dog.vy/1600));
+    ctx.save(); ctx.translate(dog.x, dog.y); ctx.rotate(tilt);
+    let frameIndex;
+    if(dog.onGround){
+      const fps = 10 + Math.min(10, speed*0.01);
+      dog.frame = (dog.frame + fps/60) % totalFrames;
+      frameIndex = Math.floor(dog.frame) % totalFrames;
+    } else { frameIndex = 2; }
+    const sx = (frameIndex % cols) * frameW;
+    const sy = Math.floor(frameIndex / cols) * frameH;
+    ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+    ctx.restore();
+  }
+
+  function render(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawSky(); drawHills(hills2, '#c8d4e7'); drawHills(hills1, '#b9d2e8'); drawGround();
+    for(const p of poops) drawPoo(p);
+    drawDog();
+    updateHud();
+  }
+  function loop(ts){
+    const now = ts/1000; if(!loop.last) loop.last = now;
+    const dt = Math.max(0, Math.min(now - loop.last, 1/20)); loop.last = now;
+    update(dt); render(); requestAnimationFrame(loop);
+  }
+  function updateHud(){ scoreHud.textContent = `Score: ${score} • Best: ${best}`; }
+
+  // Input
+  function press(){ if(state==='intro'){start();return;} if(state==='over'){reset();return;} if(state==='running' && dog.onGround){ dog.vy=-800; dog.onGround=false; jumpHold=true; holdTime=0; } }
+  function release(){ jumpHold=false; }
+  startBtn.addEventListener('click', start);
+  restartBtn.addEventListener('click', reset);
+  jumpBtn.addEventListener('click', press);
+  canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); }, {passive:false});
+  canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
+  window.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); }}, {passive:false});
+  window.addEventListener('keyup',   e=>{ if(e.code==='Space'){ e.preventDefault(); release(); }}, {passive:false});
+
+  // Boot
+  reset(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
