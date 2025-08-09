@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo! (DEBUG v3.2)</title>
+<style>
+  html,body { margin:0; padding:0; background:#f7efe3; height:100%; overflow:hidden; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  canvas { display:block; width:100%; height:100%; background:linear-gradient(#cde7ff, #f7efe3); }
+  .overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.5); color:#fff; text-align:center; z-index:10; }
+  .hidden { display:none !important; }
+  .btn { background:#ffd54f; border:none; padding:10px 20px; border-radius:10px; font-weight:800; font-size:16px; cursor:pointer; }
+  .debug { position:fixed; top:6px; right:8px; background:#d32f2f; color:#fff; padding:8px 10px; border-radius:8px; font-size:12px; z-index:9999; white-space:nowrap; }
+  .score { position:fixed; top:6px; left:8px; background:rgba(0,0,0,0.55); color:#fff; padding:8px 10px; border-radius:8px; font-size:14px; z-index:9999; }
+  .ver { position:fixed; left:8px; bottom:8px; background:#000; color:#0f0; padding:6px 10px; border-radius:10px; font:13px ui-monospace, SFMono-Regular, Menlo, monospace; opacity:.9; z-index:9999; }
+</style>
+</head>
+<body>
+<canvas id="game" width="900" height="420"></canvas>
+
+<div id="intro" class="overlay">
+  <div>
+    <h1 style="margin:0 0 8px 0">Brus Gotta Poo!</h1>
+    <p style="margin:0 0 14px 0">Tap to Begin</p>
+    <button id="startBtn" class="btn">Start</button>
+  </div>
+</div>
+
+<div id="gameOver" class="overlay hidden">
+  <div>
+    <h1 style="margin:0 0 8px 0">Game Over 💩</h1>
+    <p id="finalScore" style="margin:0 0 14px 0"></p>
+    <button id="restartBtn" class="btn">Restart</button>
+  </div>
+</div>
+
+<div id="debug" class="debug">state:init • t=0.00 • spd=0 • gap=0/0 next=0 • poops=0</div>
+<div id="score" class="score">Score: 0 • Best: 0</div>
+<div id="ver" class="ver">DEBUG v3.2 • <span id="ts"></span></div>
+
+<script>
+// Timestamp
+document.getElementById('ts').textContent = new Date().toLocaleString();
+
+// Canvas
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+let groundY = canvas.height * 0.80;
+
+function resize(){
+  dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+  canvas.width  = Math.floor(window.innerWidth * dpr);
+  canvas.height = Math.floor((window.innerHeight) * dpr);
+  groundY = canvas.height * 0.80;
+}
+window.addEventListener('resize', resize, {passive:true});
+resize();
+
+// DOM
+const introOverlay = document.getElementById('intro');
+const gameOverOverlay = document.getElementById('gameOver');
+const startBtn = document.getElementById('startBtn');
+const restartBtn = document.getElementById('restartBtn');
+const finalScoreEl = document.getElementById('finalScore');
+const debugEl = document.getElementById('debug');
+const scoreEl = document.getElementById('score');
+
+function hide(el){ el.classList.add('hidden'); el.style.display='none'; }
+function show(el){ el.classList.remove('hidden'); el.style.display='flex'; }
+
+// Game state
+let state = 'intro';
+let t = 0;
+let gravity = 3000;
+let jumpHold = false, holdTime = 0, maxHold = 0.18;
+let dog = { x: canvas.width*0.2, y: 0, w: 100, h: 60, vy: 0, onGround: true };
+let poops = [];
+let speed = 500;
+let score = 0;
+let best = parseInt(localStorage.getItem('bru_best') || '0', 10);
+
+// Spawn scheduling with dynamic difficulty
+let minGap = 1.6, maxGap = 2.2; // forgiving start
+let spawnTimer = 0;
+let nextGap = rand(minGap, maxGap);
+function rand(a,b){ return a + Math.random()*(b-a); }
+
+function resetGame(){
+  state = 'intro';
+  t = 0; score = 0; speed = 500;
+  minGap = 1.6; maxGap = 2.2;
+  spawnTimer = 0; nextGap = rand(minGap, maxGap);
+  poops = [];
+  dog.y = groundY - dog.h/2; dog.vy = 0; dog.onGround = true;
+  show(introOverlay); hide(gameOverOverlay);
+  updateUI();
+}
+
+function startGame(){
+  state = 'running';
+  t = 0; score = 0;
+  spawnTimer = 0; nextGap = rand(minGap, maxGap);
+  poops = [];
+  dog.y = groundY - dog.h/2; dog.vy = 0; dog.onGround = true;
+  hide(introOverlay); hide(gameOverOverlay);
+  updateUI();
+}
+
+function gameOver(){
+  state = 'over';
+  if(score > best){ best = score; localStorage.setItem('bru_best', best); }
+  finalScoreEl.textContent = `Score: ${score} • Best: ${best}`;
+  show(gameOverOverlay);
+  updateUI();
+}
+
+function spawnPoo(){
+  poops.push({ x: canvas.width + 50, y: groundY, w: 52, h: 42 });
+  // Double-poop chance increases over time (max +25%)
+  const doubleChance = 0.30 + Math.min(0.25, t*0.008); // up to 0.55
+  if(Math.random() < doubleChance){
+    // Spacing tightens over time
+    const tight = Math.min(1, t/45); // hits 1 after ~45s
+    const dmin = 58 - 28 * tight;    // 58 -> 30
+    const dmax = 95 - 35 * tight;    // 95 -> 60
+    const dx = dmin + Math.random()*(dmax - dmin);
+    poops.push({ x: canvas.width + 50 + dx, y: groundY, w: 48, h: 38 });
+  }
+}
+
+function update(dt){
+  if(state !== 'running') return;
+
+  t += dt;
+  // speed ramp
+  speed += dt * 32;
+
+  // tighten gaps faster, allow very tight late-game spacing
+  minGap = Math.max(0.45, minGap - dt * 0.032);
+  maxGap = Math.max(minGap + 0.25, maxGap - dt * 0.026);
+
+  // spawning
+  spawnTimer += dt;
+  if(spawnTimer >= nextGap){
+    spawnPoo();
+    spawnTimer = 0;
+    nextGap = rand(minGap, maxGap);
+  }
+
+  // physics
+  dog.vy += gravity * dt;
+  if(jumpHold && !dog.onGround && holdTime < maxHold && dog.vy < 0){
+    dog.vy -= 3000*dt; holdTime += dt;
+  }
+  dog.y += dog.vy * dt;
+  if(dog.y + dog.h/2 >= groundY){
+    dog.y = groundY - dog.h/2; dog.vy = 0; dog.onGround = true; holdTime = 0;
+  }
+
+  // move poops & cull
+  for(const p of poops){ p.x -= speed * dt; }
+  poops = poops.filter(p => p.x + p.w > 0);
+
+  // collisions
+  for(const p of poops){
+    const px = p.x, pw = p.w, ph = p.h, pyTop = p.y - p.h;
+    const dx = dog.x - dog.w/2, dy = dog.y - dog.h/2;
+    if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){
+      return gameOver();
+    }
+  }
+
+  // score
+  score += Math.floor(dt * 100);
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // ground
+  ctx.fillStyle = '#9dbc6f';
+  ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+  // dog
+  ctx.fillStyle = '#d79a4a';
+  ctx.fillRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
+  // poops
+  ctx.fillStyle = '#7b4a21';
+  for(const p of poops){
+    ctx.beginPath();
+    ctx.arc(p.x, p.y - p.h/2, p.w/2, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function loop(ts){
+  const now = ts/1000;
+  if(!loop.last) loop.last = now;
+  const dt = Math.max(0, Math.min(now - loop.last, 1/20));
+  loop.last = now;
+  update(dt); draw(); updateUI();
+  requestAnimationFrame(loop);
+}
+
+function updateUI(){
+  debugEl.textContent = `state:${state} • t=${t.toFixed(2)} • spd=${Math.round(speed)} • gap=${minGap.toFixed(2)}/${maxGap.toFixed(2)} next=${nextGap.toFixed(2)} • poops=${poops.length}`;
+  scoreEl.textContent = `Score: ${score} • Best: ${best}`;
+}
+
+// Input
+function jumpPress(){
+  if(state === 'intro'){ startGame(); return; }
+  if(state === 'over'){ resetGame(); return; }
+  if(state === 'running' && dog.onGround){
+    dog.vy = -800; dog.onGround = false; jumpHold = true; holdTime = 0;
+  }
+}
+function jumpRelease(){ jumpHold = false; }
+startBtn.addEventListener('click', startGame);
+restartBtn.addEventListener('click', resetGame);
+canvas.addEventListener('pointerdown', (e)=>{ e.preventDefault(); jumpPress(); }, {passive:false});
+canvas.addEventListener('pointerup',   (e)=>{ e.preventDefault(); jumpRelease(); }, {passive:false});
+window.addEventListener('keydown', (e)=>{ if(e.code === 'Space'){ e.preventDefault(); jumpPress(); }}, {passive:false});
+window.addEventListener('keyup',   (e)=>{ if(e.code === 'Space'){ e.preventDefault(); jumpRelease(); }}, {passive:false});
+
+// Boot
+resetGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
