@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo!</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    --skyTop:#bfe4ff; --skyMid:#d9efff; --skyBot:#fdeedb;
+    --sun:#fff7b2;
+    --hillBack:#c8d4e7; --hillFront:#b6c9e3;
+    --groundBase:#dfd3b9; --groundShade:#c9b99a; --grass:#8fbe63; --path:#b49a77;
+    --poo:#6b3e19; --pooEdge:#4e2b10; --pooHi:#b27a3f;
+    --card:#263238ee; --text:#fff; --accent:#ffd54f;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{height:100%;margin:0;background:var(--skyBot);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .wrap{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto}
+  canvas{width:100%;height:100%;display:block;touch-action:manipulation;background:linear-gradient(var(--skyTop),var(--skyMid) 55%, var(--skyBot))}
+  .hud{display:flex;gap:10px;align-items:center;justify-content:center;padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left);background:linear-gradient(180deg,#0000,#0001)}
+  .btn{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);font-weight:800;color:#3a300e}
+  .btn:active{transform:translateY(1px) scale(.99)}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .card{background:var(--card);color:var(--text);padding:22px 28px;border-radius:18px;box-shadow:0 14px 40px #0006;text-align:center;max-width:min(560px,86vw)}
+  .title{font-size:28px;font-weight:900;margin:0 0 6px 0}
+  .subtitle{font-size:18px;opacity:.95;margin:0 0 12px 0}
+  .hidden{display:none!important}
+  .scoreHud{position:fixed;left:12px;top:8px;background:rgba(0,0,0,.25);color:#fff;padding:10px 12px;border-radius:12px;font-weight:700;z-index:20}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="900" height="420" aria-label="Brus Gotta Poo! Endless Runner"></canvas>
+
+  <div id="intro" class="overlay">
+    <div class="card">
+      <div class="title">Brus Gotta Poo!</div>
+      <div class="subtitle">Tap to Begin</div>
+      <button id="startBtn" class="btn">Start</button>
+    </div>
+  </div>
+
+  <div id="gameOver" class="overlay hidden">
+    <div class="card">
+      <div class="title">Game Over 💩</div>
+      <div id="finalScore" class="subtitle"></div>
+      <button id="restartBtn" class="btn">Restart</button>
+    </div>
+  </div>
+
+  <div id="scoreHud" class="scoreHud">Score: 0 • Best: 0</div>
+  <div class="hud">
+    <button id="jumpBtn" class="btn">Jump (Tap/Space)</button>
+    <span class="subtitle" style="color:#000;opacity:.75">Quick taps = small hops, hold for higher jumps.</span>
+  </div>
+</div>
+
+<script>
+(()=>{
+  // Canvas & sizing
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+  let groundY = canvas.height * 0.80;
+  function resize(){
+    dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    canvas.width  = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    groundY = canvas.height * 0.80;
+  }
+  window.addEventListener('resize', resize, {passive:true}); resize();
+
+  // DOM
+  const intro = document.getElementById('intro');
+  const over  = document.getElementById('gameOver');
+  const startBtn = document.getElementById('startBtn');
+  const restartBtn = document.getElementById('restartBtn');
+  const jumpBtn = document.getElementById('jumpBtn');
+  const scoreHud = document.getElementById('scoreHud');
+  const show = el => el.classList.remove('hidden');
+  const hide = el => el.classList.add('hidden');
+
+  // State
+  let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
+  const G = 3000, HOLD_MAX=0.18;
+  let jumpHold=false, holdTime=0, speed=500;
+  let poops=[];
+
+  // Runner
+  const dog={ x:0, y:0, w:200, h:140, vy:0, onGround:true, frame:0 };
+  const DOG_X = ()=> canvas.width*0.2;
+
+  // Spawning (aggressive difficulty you approved)
+  let minGap=1.4, maxGap=2.0, spawnTimer=0, nextGap=rand(minGap,maxGap);
+  function rand(a,b){ return a + Math.random()*(b-a); }
+  function aabb(dx,dy,dw,dh,px,pyTop,pw,phBottom){ return dx < px + pw && dx + dw > px && dy < pyTop + phBottom && dy + dh > pyTop; }
+
+  // Load sprite externally (must be in repo root next to index.html)
+  const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
+  let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
+  rawImg.onload = ()=>{
+    const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
+    const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
+    const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
+    // carefully key out only the orange background band; preserve darker lines & fur
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i], g=d[i+1], b=d[i+2];
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const v=max/255, s=max===0?0:(max-min)/max;
+      let h=0;
+      if(max!==min){
+        if(max===r) h=(g-b)/(max-min);
+        else if(max===g) h=2+(b-r)/(max-min);
+        else h=4+(r-g)/(max-min);
+        h=(h*60); if(h<0) h+=360;
+      }
+      if(v < 0.22) continue; // keep dark ink lines
+      if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
+    }
+    octx.putImageData(img,0,0);
+    cleanSprite=off;
+    frameW=Math.floor(off.width/cols);
+    frameH=Math.floor(off.height/rows);
+  };
+
+  // Parallax sky elements
+  const sun = { x: () => canvas.width*0.82, y: () => canvas.height*0.18, r: 36*dpr };
+  const clouds = new Array(7).fill(0).map((_,i)=>({x: i*420 + Math.random()*240, y: 60+Math.random()*120, r: 20+Math.random()*26 }));
+  const hillsBack = new Array(6).fill(0).map((_,i)=>({x:i*520, h: 140+Math.random()*60}));
+  const hillsFront= new Array(6).fill(0).map((_,i)=>({x:i*420, h: 90+Math.random()*40}));
+
+  // Flow
+  function reset(){
+    state='intro'; t=0; score=0; speed=500;
+    minGap=1.4; maxGap=2.0; spawnTimer=0; nextGap=rand(minGap,maxGap);
+    poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.frame=0;
+    show(intro); hide(over); updateHud(); render();
+  }
+  function start(){
+    state='running'; t=0; score=0; spawnTimer=0; nextGap=rand(minGap,maxGap);
+    poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.frame=0;
+    hide(intro); hide(over);
+  }
+  function gameOver(){
+    state='over'; if(score>best){ best=score; localStorage.setItem('bru_best',best); }
+    document.getElementById('finalScore').textContent = `Score: ${score} • Best: ${best}`;
+    show(over);
+  }
+
+  function spawnPoo(){
+    poops.push({ x: canvas.width + 50, y: groundY, w: 52, h: 42, a: Math.random()*Math.PI*2 });
+    const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
+    if(Math.random() < chance){
+      const tight = Math.min(1, t/30);
+      const dmin = 54 - 30*tight;
+      const dmax = 90 - 42*tight;
+      const dx = dmin + Math.random()*(dmax - dmin);
+      poops.push({ x: canvas.width + 50 + dx, y: groundY, w: 48, h: 38, a: Math.random()*Math.PI*2 });
+    }
+  }
+
+  // Update
+  function update(dt){
+    if(state!=='running') return;
+    t+=dt;
+    // Parallax motion
+    for (let c of clouds){ c.x -= (520 + t*34)*0.10*dt; if(c.x<-220){ c.x+=canvas.width+480; c.y=40+Math.random()*160; } }
+    for (let h of hillsBack){ h.x -= (520 + t*34)*0.16*dt; if(h.x<-520) h.x+=canvas.width+520; }
+    for (let h of hillsFront){ h.x -= (520 + t*34)*0.22*dt; if(h.x<-420) h.x+=canvas.width+420; }
+
+    // Speed + spawn tightening
+    speed += dt*34;
+    minGap = Math.max(0.35, minGap - dt*0.06);
+    maxGap = Math.max(minGap + 0.22, maxGap - dt*0.052);
+
+    // Spawning
+    spawnTimer += dt; if(spawnTimer >= nextGap){ spawnPoo(); spawnTimer=0; nextGap = rand(minGap, maxGap); }
+
+    // Physics
+    dog.vy += G*dt;
+    if(jumpHold && !dog.onGround && holdTime < HOLD_MAX && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
+    dog.y += dog.vy*dt;
+    if(dog.y + dog.h/2 >= groundY){ dog.y = groundY - dog.h/2; dog.vy=0; dog.onGround=true; holdTime=0; }
+
+    // Move poops
+    for(const p of poops){ p.x -= speed*dt; p.a += dt*1.8; }
+    poops = poops.filter(p => p.x + p.w > 0);
+
+    // Collisions
+    const dx = dog.x - dog.w/2, dy = dog.y - dog.h/2;
+    for(const p of poops){ const px=p.x, pw=p.w, pyTop=p.y - p.h; if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){ return gameOver(); } }
+
+    // Score
+    score += Math.floor(dt*100);
+  }
+
+  // Draw
+  function drawSky(){
+    // Sun glow
+    const x=sun.x(), y=sun.y(), r=sun.r;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r*3);
+    g.addColorStop(0, 'rgba(255,247,178,0.9)');
+    g.addColorStop(1, 'rgba(255,247,178,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2); ctx.fill();
+    // Clouds
+    for (let c of clouds){
+      ctx.fillStyle='rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*0.9, c.y- c.r*0.5, c.r*0.85, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*1.8, c.y, c.r*1.1, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*0.9, c.y+c.r*0.5, c.r*0.9, 0, Math.PI*2);
+      ctx.fill();
+    }
+    // Hills
+    drawHills(hillsBack, getComputedStyle(document.documentElement).getPropertyValue('--hillBack').trim()||'#c8d4e7');
+    drawHills(hillsFront,getComputedStyle(document.documentElement).getPropertyValue('--hillFront').trim()||'#b6c9e3');
+  }
+  function drawHills(list, color){
+    ctx.fillStyle=color;
+    for (let h of list){
+      ctx.beginPath();
+      ctx.moveTo(h.x-320, groundY);
+      ctx.quadraticCurveTo(h.x, groundY-h.h, h.x+320, groundY);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  function drawGround(){
+    // Base soil
+    const base = getComputedStyle(document.documentElement).getPropertyValue('--groundBase').trim()||'#dfd3b9';
+    const shade= getComputedStyle(document.documentElement).getPropertyValue('--groundShade').trim()||'#c9b99a';
+    const grd = ctx.createLinearGradient(0, groundY, 0, canvas.height);
+    grd.addColorStop(0, shade); grd.addColorStop(1, base);
+    ctx.fillStyle=grd; ctx.fillRect(0, groundY, canvas.width, canvas.height-groundY);
+
+    // Grass strip
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--grass').trim()||'#8fbe63';
+    ctx.fillRect(0, groundY-8, canvas.width, 8);
+
+    // Path ticks (scrolling)
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--path').trim()||'#b49a77';
+    const step=28, off=(t*140)%step;
+    for(let x=-step;x<canvas.width+step;x+=step) ctx.fillRect(Math.floor(x-off), groundY+10, 14, 6);
+
+    // Random grass tufts
+    const seed = Math.floor(t*2); // change occasionally
+    for(let i=0;i<8;i++){
+      const gx = (i*120 + (seed*53)%120 + (t*60)%120) % (canvas.width+120) - 60;
+      const gy = groundY-8;
+      ctx.strokeStyle = '#2f6d1f'; ctx.lineWidth = 2*dpr;
+      ctx.beginPath(); ctx.moveTo(gx,gy); ctx.quadraticCurveTo(gx+6, gy-10, gx+2, gy-2); ctx.moveTo(gx+10,gy); ctx.quadraticCurveTo(gx+16, gy-12, gx+12, gy-2); ctx.stroke();
+    }
+  }
+
+  function drawPoo(p){
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // shadow
+    ctx.fillStyle='rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(0, -6, p.w*0.42, 7, 0, 0, Math.PI*2); ctx.fill();
+    // swirl base
+    const edge = getComputedStyle(document.documentElement).getPropertyValue('--pooEdge').trim()||'#4e2b10';
+    ctx.strokeStyle=edge; ctx.lineWidth=3*dpr;
+    const c1 = getComputedStyle(document.documentElement).getPropertyValue('--poo').trim()||'#6b3e19';
+    const c2 = getComputedStyle(document.documentElement).getPropertyValue('--pooHi').trim()||'#b27a3f';
+    // layered blobs (cartoon swirl)
+    ctx.fillStyle=c1; blob(-p.w*0.52, -p.h*0.34, p.w*1.04, p.h*0.40, 14);
+    ctx.fillStyle=c1; blob(-p.w*0.38, -p.h*0.64, p.w*0.76, p.h*0.34, 12);
+    ctx.fillStyle=c1; blob(-p.w*0.22, -p.h*0.90, p.w*0.46, p.h*0.30, 12);
+    // highlight
+    ctx.fillStyle=c2; blob(-p.w*0.18, -p.h*0.82, p.w*0.20, p.h*0.18, 8);
+    // tiny flies (occasional, subtle)
+    if(((p.a*37)|0)%17===0){
+      const fx = Math.sin(p.a)*10, fy = -p.h*0.9 + Math.cos(p.a*1.3)*6;
+      ctx.fillStyle='#222'; ctx.beginPath(); ctx.ellipse(fx, fy, 2.2*dpr, 1.6*dpr, 0, 0, Math.PI*2); ctx.ellipse(fx+4, fy, 2.2*dpr, 1.6*dpr, 0, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function blob(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y, x+w,y+h, r); ctx.arcTo(x+w,y+h, x,y+h, r); ctx.arcTo(x,y+h, x,y, r); ctx.arcTo(x,y, x+w,y, r); ctx.fill(); ctx.stroke(); }
+
+  function drawDog(){
+    if(!cleanSprite){ return; }
+    const tilt = Math.max(-0.12, Math.min(0.16, dog.vy/1600));
+    ctx.save(); ctx.translate(dog.x, dog.y); ctx.rotate(tilt);
+    const fps = 8; dog.frame = (dog.frame + fps/60) % totalFrames;
+    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+    const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
+    ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+    ctx.restore();
+  }
+
+  function render(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawSky(); drawGround();
+    for(const p of poops) drawPoo(p);
+    drawDog();
+    updateHud();
+  }
+  function updateHud(){ scoreHud.textContent = `Score: ${score} • Best: ${best}`; }
+
+  function loop(ts){
+    const now = ts/1000; if(!loop.last) loop.last = now;
+    const dt = Math.max(0, Math.min(now - loop.last, 1/20)); loop.last = now;
+    if(state==='running'){ update(dt); }
+    render(); requestAnimationFrame(loop);
+  }
+
+  // Input
+  function press(){ if(state==='intro'){start();return;} if(state==='over'){reset();return;} if(state==='running' && (dog.onGround||dog.vy===0)){ dog.vy=-800; dog.onGround=false; jumpHold=true; holdTime=0; } }
+  function release(){ jumpHold=false; }
+  startBtn.addEventListener('click', start);
+  restartBtn.addEventListener('click', reset);
+  jumpBtn.addEventListener('click', press);
+  canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); }, {passive:false});
+  canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
+  window.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); }}, {passive:false});
+  window.addEventListener('keyup',   e=>{ if(e.code==='Space'){ e.preventDefault(); release(); }}, {passive:false});
+
+  // Boot
+  reset(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
