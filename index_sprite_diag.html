@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo! — Sprite DIAG</title>
+<style>
+  html,body{margin:0;height:100%;background:#f7efe3;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  canvas{display:block;width:100%;height:100%;background:linear-gradient(#cfe9ff,#f7efe3)}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);color:#fff;z-index:10}
+  .hidden{display:none!important}
+  .card{background:#263238ee;color:#fff;padding:22px 28px;border-radius:18px;box-shadow:0 14px 40px #0006;text-align:center}
+  .btn{border:0;border-radius:12px;padding:10px 14px;background:#ffd54f;font-weight:800;color:#3a300e;cursor:pointer}
+  .score{position:fixed;left:8px;top:8px;background:rgba(0,0,0,.4);color:#fff;padding:8px 10px;border-radius:10px;z-index:20}
+  .debug{position:fixed;right:8px;top:8px;background:#d32f2f;color:#fff;padding:8px 10px;border-radius:10px;font:12px ui-monospace,monospace;z-index:20;white-space:nowrap}
+  .err{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;background:#ffebee;color:#b71c1c;padding:10px 14px;border-radius:10px;font:13px/1.2 system-ui,sans-serif;z-index:10000;display:none}
+  .err.show{display:block}
+</style>
+</head>
+<body>
+<canvas id="game" width="900" height="420"></canvas>
+
+<div id="intro" class="overlay">
+  <div class="card">
+    <h1 style="margin:0 0 8px 0">Brus Gotta Poo!</h1>
+    <p style="margin:0 0 12px 0">Tap to Begin</p>
+    <button id="startBtn" class="btn">Start</button>
+  </div>
+</div>
+
+<div id="over" class="overlay hidden">
+  <div class="card">
+    <h1 style="margin:0 0 8px 0">Game Over 💩</h1>
+    <p id="finalScore" style="margin:0 0 12px 0"></p>
+    <button id="restartBtn" class="btn">Restart</button>
+  </div>
+</div>
+
+<div class="score" id="score">Score: 0 • Best: 0</div>
+<div class="debug" id="debug">state:init • t=0.00 • spd=0 • poops=0 • sprite:0x0 loaded:no</div>
+<div id="err" class="err"></div>
+
+<script>
+// Error catcher
+const errBox = document.getElementById('err');
+window.addEventListener('error', (e)=>{ errBox.textContent = 'Error: ' + e.message; errBox.classList.add('show'); });
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let dpr = Math.max(1, Math.min(window.devicePixelRatio||1,2));
+let groundY = canvas.height * 0.8;
+function resize(){ dpr=Math.max(1, Math.min(window.devicePixelRatio||1,2)); canvas.width=Math.floor(innerWidth*dpr); canvas.height=Math.floor(innerHeight*dpr); groundY = canvas.height*0.8; }
+addEventListener('resize', resize, {passive:true}); resize();
+
+const intro = document.getElementById('intro');
+const over = document.getElementById('over');
+const startBtn = document.getElementById('startBtn');
+const restartBtn = document.getElementById('restartBtn');
+const scoreEl = document.getElementById('score');
+const debugEl = document.getElementById('debug');
+function hide(el){ el.classList.add('hidden'); el.style.display='none'; el.style.pointerEvents='none'; }
+function show(el){ el.classList.remove('hidden'); el.style.display='flex'; el.style.pointerEvents='auto'; }
+
+let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
+let speed=500, poops=[];
+let jumpHold=false, holdTime=0;
+const G=3000, HOLD_MAX=0.18;
+
+const dog={ w:200, h:140, vy:0, onGround:true, frame:0 };
+function DOG_X(){ return canvas.width*0.2; }
+
+let minGap=1.4, maxGap=2.0, spawnTimer=0, nextGap=rand(minGap,maxGap);
+function rand(a,b){ return a + Math.random()*(b-a); }
+
+// Sprite loading + masking
+const rawImg = new Image();
+rawImg.src = 'bru_sprite.png';
+let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
+rawImg.onload = ()=>{
+  const off=document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
+  const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
+  const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    const v=max/255, s=max===0?0:(max-min)/max;
+    let h=0;
+    if(max!==min){
+      if(max===r) h=(g-b)/(max-min);
+      else if(max===g) h=2+(b-r)/(max-min);
+      else h=4+(r-g)/(max-min);
+      h=(h*60); if(h<0) h+=360;
+    }
+    if(v < 0.22) continue; // keep dark lines
+    if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
+  }
+  octx.putImageData(img,0,0);
+  cleanSprite=off;
+  frameW=Math.floor(off.width/cols);
+  frameH=Math.floor(off.height/rows);
+};
+
+function reset(){
+  state='intro'; t=0; score=0; speed=500;
+  minGap=1.4; maxGap=2.0; spawnTimer=0; nextGap=rand(minGap,maxGap);
+  poops=[]; dog.vy=0; dog.onGround=true; dog.frame=0;
+  show(intro); hide(over);
+}
+function start(){
+  state='running'; t=0; score=0; spawnTimer=0; nextGap=rand(minGap,maxGap);
+  poops=[]; dog.vy=0; dog.onGround=true; dog.frame=0;
+  hide(intro); hide(over);
+}
+function gameOver(){
+  state='over'; if(score>best){ best=score; localStorage.setItem('bru_best',best); }
+  document.getElementById('finalScore').textContent=`Score: ${score} • Best: ${best}`;
+  show(over);
+}
+
+function spawnPoo(){
+  poops.push({ x: canvas.width + 50, y: groundY, w: 52, h: 42 });
+  const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
+  if(Math.random() < chance){
+    const tight = Math.min(1, t/30);
+    const dmin = 54 - 30*tight, dmax = 90 - 42*tight;
+    const dx = dmin + Math.random()*(dmax - dmin);
+    poops.push({ x: canvas.width + 50 + dx, y: groundY, w: 48, h: 38 });
+  }
+}
+
+function update(dt){
+  if(state!=='running') return;
+
+  t+=dt;
+  speed += dt*34;
+  minGap = Math.max(0.35, minGap - dt*0.06);
+  maxGap = Math.max(minGap + 0.22, maxGap - dt*0.052);
+  spawnTimer += dt; if(spawnTimer >= nextGap){ spawnPoo(); spawnTimer=0; nextGap = rand(minGap, maxGap); }
+
+  // physics
+  dog.vy += G*dt;
+  if(jumpHold && !dog.onGround && holdTime < HOLD_MAX && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
+  let y = (dog.y ?? (groundY - dog.h/2)); // default if undefined
+  y += dog.vy*dt;
+  if(y + dog.h/2 >= groundY){ y = groundY - dog.h/2; dog.vy=0; dog.onGround=true; holdTime=0; }
+  dog.y = y;
+
+  // move poops
+  for(const p of poops){ p.x -= speed*dt; }
+  poops = poops.filter(p => p.x + p.w > 0);
+
+  // collisions
+  const dx = DOG_X() - dog.w/2, dy = dog.y - dog.h/2;
+  for(const p of poops){ const px=p.x, pw=p.w, pyTop=p.y - p.h; if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){ return gameOver(); } }
+
+  score += Math.floor(dt*100);
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // ground
+  ctx.fillStyle='#9dbc6f'; ctx.fillRect(0, groundY, canvas.width, canvas.height-groundY);
+  // poops
+  ctx.fillStyle='#7b4a21';
+  for(const p of poops){ ctx.beginPath(); ctx.arc(p.x, p.y - p.h/2, p.w/2, 0, Math.PI*2); ctx.fill(); }
+  // dog
+  if(cleanSprite){
+    const tilt = Math.max(-0.12, Math.min(0.16, dog.vy/1600));
+    ctx.save(); ctx.translate(DOG_X(), dog.y); ctx.rotate(tilt);
+    const fps = 8; dog.frame = (dog.frame + fps/60) % totalFrames;
+    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+    const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
+    ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+    ctx.restore();
+  } else {
+    ctx.fillStyle='rgba(0,0,0,.15)'; ctx.fillRect(DOG_X()-dog.w*0.5, (dog.y??(groundY-dog.h/2))-dog.h*0.5, dog.w, dog.h);
+  }
+}
+
+function loop(ts){
+  try{
+    const now = ts/1000; if(!loop.last) loop.last = now;
+    const dt = Math.max(0, Math.min(now - loop.last, 1/20)); loop.last = now;
+    update(dt); draw(); updateUI();
+  } catch(e){
+    errBox.textContent = 'Runtime error: ' + (e && e.message ? e.message : e); errBox.classList.add('show');
+  }
+  requestAnimationFrame(loop);
+}
+
+function updateUI(){
+  scoreEl.textContent = `Score: ${score} • Best: ${best}`;
+  const sW = cleanSprite ? (cleanSprite.width+'x'+cleanSprite.height) : '0x0';
+  debugEl.textContent = `state:${state} • t=${t.toFixed(2)} • spd=${Math.round(speed)} • poops=${poops.length} • sprite:${sW} loaded:${!!cleanSprite}`;
+}
+
+// Input
+function press(){ if(state==='intro'){ start(); return; } if(state==='over'){ reset(); return; } if(state==='running' && (dog.onGround || dog.vy===0)){ dog.vy=-800; dog.onGround=false; jumpHold=true; holdTime=0; } }
+function release(){ jumpHold=false; }
+
+startBtn.addEventListener('click', start);
+restartBtn.addEventListener('click', reset);
+canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); }, {passive:false});
+canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
+addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); }}, {passive:false});
+addEventListener('keyup',   e=>{ if(e.code==='Space'){ e.preventDefault(); release(); }}, {passive:false});
+
+reset(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
