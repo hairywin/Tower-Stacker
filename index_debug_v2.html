@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Brus Gotta Poo! (DEBUG v2)</title>
+<style>
+  html,body { margin:0; padding:0; background:#f7efe3; height:100%; overflow:hidden; font-family:system-ui, sans-serif; }
+  canvas { display:block; width:100%; height:100%; background:linear-gradient(#cde7ff, #f7efe3); }
+  .overlay { position:absolute; top:0; left:0; right:0; bottom:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.5); color:#fff; text-align:center; z-index:10; }
+  .hidden { display:none; }
+  .btn { background:#ffd54f; border:none; padding:10px 20px; border-radius:10px; font-weight:bold; font-size:16px; cursor:pointer; }
+  .debug { position:fixed; top:6px; right:8px; background:#d32f2f; color:#fff; padding:8px 10px; border-radius:8px; font-size:14px; z-index:9999; }
+  .score { position:fixed; top:6px; left:8px; background:rgba(0,0,0,0.5); color:#fff; padding:8px 10px; border-radius:8px; font-size:14px; z-index:9999; }
+</style>
+</head>
+<body>
+<canvas id="game" width="900" height="420"></canvas>
+
+<div id="intro" class="overlay">
+  <h1>Brus Gotta Poo!</h1>
+  <p>Tap to Begin</p>
+  <button id="startBtn" class="btn">Start</button>
+</div>
+
+<div id="gameOver" class="overlay hidden">
+  <h1>Game Over 💩</h1>
+  <p id="finalScore"></p>
+  <button id="restartBtn" class="btn">Restart</button>
+</div>
+
+<div id="debug" class="debug">state:init • t=0.00</div>
+<div id="score" class="score">Score: 0 • Best: 0</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let scale = window.devicePixelRatio || 1;
+canvas.width = window.innerWidth * scale;
+canvas.height = window.innerHeight * scale;
+
+let state = 'intro';
+let t = 0;
+let dog = {x: canvas.width*0.2, y:0, w:100, h:60, vy:0, onGround:true};
+let groundY = canvas.height * 0.8;
+let gravity = 3000;
+let jumpV = -800;
+let jumpHold = false;
+let holdTime = 0;
+let maxHold = 0.18;
+let poops = [];
+let spawnTimer = 0;
+let minGap = 1.6, maxGap = 2.2; // forgiving start
+let speed = 500;
+let score = 0;
+let best = parseInt(localStorage.getItem('bru_best')||'0',10);
+const debugEl = document.getElementById('debug');
+const scoreEl = document.getElementById('score');
+const introOverlay = document.getElementById('intro');
+const gameOverOverlay = document.getElementById('gameOver');
+
+function resetGame(){
+  t = 0;
+  score = 0;
+  speed = 500;
+  minGap = 1.6;
+  maxGap = 2.2;
+  poops = [];
+  dog.y = groundY - dog.h/2;
+  dog.vy = 0;
+  dog.onGround = true;
+  state = 'intro';
+  introOverlay.classList.remove('hidden');
+  gameOverOverlay.classList.add('hidden');
+  updateUI();
+}
+
+function startGame(){
+  state = 'running';
+  t = 0;
+  spawnTimer = 0;
+  poops = [];
+  score = 0;
+  dog.y = groundY - dog.h/2;
+  dog.vy = 0;
+  dog.onGround = true;
+  introOverlay.classList.add('hidden');
+  gameOverOverlay.classList.add('hidden');
+}
+
+function gameOver(){
+  state = 'over';
+  if(score > best){
+    best = score;
+    localStorage.setItem('bru_best', best);
+  }
+  document.getElementById('finalScore').textContent = `Score: ${score} • Best: ${best}`;
+  gameOverOverlay.classList.remove('hidden');
+}
+
+function spawnPoo(){
+  poops.push({x: canvas.width + 50, y: groundY, w:50, h:40});
+  // small chance of a second close poop
+  if(Math.random() < 0.25){
+    poops.push({x: canvas.width + 50 + 70, y: groundY, w:50, h:40});
+  }
+}
+
+function update(dt){
+  if(state !== 'running') return;
+  t += dt;
+  // increase speed gradually
+  speed += dt * 30;
+  // shrink gap range over time
+  if(minGap > 0.8) minGap -= dt * 0.02;
+  if(maxGap > 1.4) maxGap -= dt * 0.015;
+  // spawn poop based on random gap timing
+  spawnTimer += dt;
+  let targetGap = Math.random() * (maxGap - minGap) + minGap;
+  if(spawnTimer >= targetGap){
+    spawnPoo();
+    spawnTimer = 0;
+  }
+  // update dog physics
+  dog.vy += gravity * dt;
+  if(jumpHold && !dog.onGround && holdTime < maxHold && dog.vy < 0){
+    dog.vy -= 3000 * dt;
+    holdTime += dt;
+  }
+  dog.y += dog.vy * dt;
+  if(dog.y + dog.h/2 >= groundY){
+    dog.y = groundY - dog.h/2;
+    dog.vy = 0;
+    dog.onGround = true;
+    holdTime = 0;
+  }
+  // move poops
+  for(let p of poops){
+    p.x -= speed * dt;
+  }
+  // remove off-screen
+  poops = poops.filter(p => p.x + p.w > 0);
+  // collision
+  for(let p of poops){
+    if(dog.x < p.x + p.w && dog.x + dog.w > p.x && dog.y < p.y && dog.y + dog.h > p.y - p.h){
+      gameOver();
+    }
+  }
+  // score
+  score += Math.floor(dt * 100);
+}
+
+function drawDog(){
+  ctx.fillStyle = '#d79a4a';
+  ctx.fillRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
+}
+
+function drawPoo(p){
+  ctx.fillStyle = '#7b4a21';
+  ctx.beginPath();
+  ctx.arc(p.x, p.y - p.h/2, p.w/2, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#9dbc6f';
+  ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+  drawDog();
+  for(let p of poops) drawPoo(p);
+}
+
+function loop(timestamp){
+  let now = timestamp/1000;
+  if(!loop.last) loop.last = now;
+  let dt = now - loop.last;
+  loop.last = now;
+  update(dt);
+  draw();
+  updateUI();
+  requestAnimationFrame(loop);
+}
+
+function updateUI(){
+  debugEl.textContent = `state:${state} • t=${t.toFixed(2)}`;
+  scoreEl.textContent = `Score: ${score} • Best: ${best}`;
+}
+
+// input
+function jumpPress(){
+  if(state === 'intro'){
+    startGame();
+  } else if(state === 'running'){
+    if(dog.onGround){
+      dog.vy = jumpV;
+      dog.onGround = false;
+      jumpHold = true;
+    }
+  } else if(state === 'over'){
+    resetGame();
+  }
+}
+function jumpRelease(){
+  jumpHold = false;
+}
+
+document.getElementById('startBtn').addEventListener('click', ()=>startGame());
+document.getElementById('restartBtn').addEventListener('click', ()=>resetGame());
+canvas.addEventListener('pointerdown', (e)=>{ e.preventDefault(); jumpPress(); });
+canvas.addEventListener('pointerup', (e)=>{ e.preventDefault(); jumpRelease(); });
+window.addEventListener('keydown', (e)=>{
+  if(e.code === 'Space'){ e.preventDefault(); jumpPress(); }
+});
+window.addEventListener('keyup', (e)=>{
+  if(e.code === 'Space'){ e.preventDefault(); jumpRelease(); }
+});
+
+resetGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
