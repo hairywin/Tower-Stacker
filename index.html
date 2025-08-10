@@ -183,14 +183,14 @@ foodImg.src = 'poo.png';
   }
 
   function spawnPoo(){
-    poops.push({ x: canvas.width + 50, y: groundY, w: 52, h: 42, a: Math.random()*Math.PI*2 });
+poops.push({ x: canvas.width + 50, y: groundY + 6, w: 52, h: 42, a: Math.random()*Math.PI*2 });
     const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
     if(Math.random() < chance){
       const tight = Math.min(1, t/30);
       const dmin = 54 - 30*tight;
       const dmax = 90 - 42*tight;
       const dx = dmin + Math.random()*(dmax - dmin);
-      poops.push({ x: canvas.width + 50 + dx, y: groundY, w: 48, h: 38, a: Math.random()*Math.PI*2 });
+poops.push({ x: canvas.width + 50 + dx, y: groundY + 6, w: 48, h: 38, a: Math.random()*Math.PI*2 });
     }
   }
 
@@ -229,7 +229,7 @@ foodImg.src = 'poo.png';
     dog.y += dog.vy*dt;
 
     if(dog.y + dog.h/2 >= groundY){
-      dog.y = groundY - dog.h/2;
+dog.y = groundY - dog.h/2 + 6; // lowered 6px
       dog.vy=0;
       if(!dog.onGround){ jumpsLeft = MAX_JUMPS; jumpPhase = 0; }
       dog.onGround=true; holdTime=0;
