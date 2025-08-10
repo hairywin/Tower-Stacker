@@ -130,6 +130,10 @@ window.addEventListener('keydown', e => {
   // Load sprite externally (must be in repo root next to index.html)
   const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
   let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
+  // Will hold pixel-perfect slice info accessible to drawDog()
+let colEdges = null, rowEdges = null;
+let frameRect = null; // function set on load to return {sx, sy, sw, sh}
+
 rawImg.onload = ()=>{
   const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
   const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
@@ -158,14 +162,27 @@ rawImg.onload = ()=>{
   if (sheetAspect >= 1.5){ cols = 4; rows = 2; } else { cols = 2; rows = 4; }
   totalFrames = cols * rows;
 
-  // compute frame size
-  frameW = Math.floor(off.width / cols);
-  frameH = Math.floor(off.height / rows);
+// Pixel-perfect slice edges so frames never steal a column/row of pixels
+colEdges = Array.from({ length: cols + 1 }, (_, i) => Math.round(i * off.width  / cols));
+rowEdges = Array.from({ length: rows + 1 }, (_, i) => Math.round(i * off.height / rows));
 
-  // keep draw size proportional to the frame to prevent visual “tail cut”
-  const frameAspect = frameH / frameW;
-  dog.w = 160;
-  dog.h = Math.round(dog.w * frameAspect);
+// Helper to get the exact source rect for a given frame index
+frameRect = function(i){
+  const c = i % cols, r = Math.floor(i / cols);
+  const sx = colEdges[c],   sy = rowEdges[r];
+  const sw = colEdges[c+1] - colEdges[c];
+  const sh = rowEdges[r+1] - rowEdges[r];
+  return { sx, sy, sw, sh };
+};
+
+// Use the first cell to set aspect for on-canvas size
+frameW = colEdges[1] - colEdges[0];
+frameH = rowEdges[1] - rowEdges[0];
+
+const frameAspect = frameH / frameW;
+dog.w = 160;
+dog.h = Math.round(dog.w * frameAspect);
+
 };
 
   // Dog food image (replaces poop visuals)
@@ -362,9 +379,16 @@ rawImg.onload = ()=>{
     const tilt = Math.max(-0.12, Math.min(0.16, dog.vy/1600));
     ctx.save(); ctx.translate(dog.x, dog.y); ctx.rotate(tilt);
     const fps = 6; dog.frame = (dog.frame + fps/60) % totalFrames;
-    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-    const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
-    ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+   const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+if (frameRect){
+  const { sx, sy, sw, sh } = frameRect(frameIndex);
+  ctx.drawImage(cleanSprite, sx, sy, sw, sh, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+} else {
+  // Fallback (shouldn’t happen after load), keeps things drawing
+  const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
+  ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+}
+
     ctx.restore();
   }
 
