@@ -128,7 +128,7 @@
 
   // Assets — HARD-CODED SPRITE LAYOUT (4×2, 256×176)
   const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
-  let cleanSprite=null, frameW=256, frameH=176, cols=4, rows=2, totalFrames=8;
+let cleanSprite=null, frameW=384, frameH=512, cols=4, rows=2, totalFrames=8;
   let frameRect=null; // function(i) => {sx, sy, sw, sh}
 
   rawImg.onload = ()=>{
@@ -355,7 +355,7 @@
     ctx.lineWidth = 2*dpr;
     ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
 
-    // Sprite sheet mini preview with grid + current frame (fixed 4×2, 256×176)
+// Sprite sheet mini preview with grid + current frame (4×2, 384×512)
     const padX = 10, padY = 42;
     const sheetW = Math.min(260, canvas.width * 0.32);
     const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
