@@ -122,10 +122,10 @@ let jumpsLeft = MAX_JUMPS;
 let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
 
 // Emergency triple jump tuning (more forgiving but still “super close”)
-const EMERGENCY_LAND_WINDOW = 60;  // must be landing soon (px above ground)
+const EMERGENCY_LAND_WINDOW = 80; // more time near ground
 const EMERGENCY_AHEAD_MIN   = -10; // slightly overlapping still allowed
 const EMERGENCY_AHEAD_MAX   = 90;  // ahead window where a poo counts as “imminent”
-const EMERGENCY_PROXIMITY   = 56;  // expand poo hitbox by this px in all directions
+const EMERGENCY_PROXIMITY   = 64; // larger “super close” bubble
 const EMERGENCY_V0          = -720; // third jump power (tune feel)
 const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
 
@@ -221,7 +221,7 @@ function canEmergencyTriple(){
   if (jumpPhase !== 2 || dog.onGround) return false;
 
   // Be forgiving at the top of the fall: treat vy >= -80 as “descending / about to descend”
-  if (dog.vy < -80) return false;
+if (dog.vy < -40) return false; // slightly earlier window near apex
 
   // Last‑chance: close to ground
   const distToGround = groundY - (dog.y + dog.h/2);
@@ -512,17 +512,48 @@ function drawDebug(){
   ctx.lineWidth = 2*dpr;
   ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
 
-  // === Triple-jump proximity flash (debug) ===
-  if (tripleFlash && tripleFlash.show > 0 && tripleFlash.rect){
-    const a = Math.max(0, Math.min(1, tripleFlash.show / 0.08));
-    const { l, t, r, b } = tripleFlash.rect;
-    ctx.globalAlpha = a;
-    ctx.lineWidth = 3 * dpr;
-    ctx.strokeStyle = '#00ff88';
-    ctx.strokeRect(l, t, r - l, b - t);
-    ctx.globalAlpha = 1;
-    tripleFlash.show -= 1/60; // decay
+  // === Triple-jump proximity box (live, no button press needed) ===
+  if (!dog.onGround && jumpPhase === 2) {
+    const descendingSoon = (dog.vy >= -80); // be a bit forgiving near the apex
+    const distToGround = groundY - (dog.y + dog.h/2);
+    if (descendingSoon && distToGround <= EMERGENCY_LAND_WINDOW) {
+      const dogLeft   = dog.x - dog.w/2;
+      const dogRight  = dog.x + dog.w/2;
+      const dogTop    = dog.y - dog.h/2;
+      const dogBottom = dog.y + dog.h/2;
+
+      for (const p of poops){
+        const pooLeft   = p.x - p.w/2;
+        const pooRight  = p.x + p.w/2;
+        const pooTop    = p.y - p.h;
+        const pooBottom = p.y;
+
+        const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
+        const exRight  = pooRight  + EMERGENCY_PROXIMITY;
+        const exTop    = pooTop    - EMERGENCY_PROXIMITY;
+        const exBottom = pooBottom + EMERGENCY_PROXIMITY;
+
+        const overlaps =
+          dogRight  >= exLeft  &&
+          dogLeft   <= exRight &&
+          dogBottom >= exTop   &&
+          dogTop    <= exBottom;
+
+        const ahead = pooLeft - dogRight; // negative = slightly overlapping already
+        const okayAhead = (ahead >= EMERGENCY_AHEAD_MIN && ahead <= EMERGENCY_AHEAD_MAX);
+
+        if (overlaps && okayAhead){
+          ctx.save();
+          ctx.lineWidth = 3 * dpr;
+          ctx.strokeStyle = '#00ff88';
+          ctx.strokeRect(exLeft, exTop, exRight - exLeft, exBottom - exTop);
+          ctx.restore();
+          break; // draw only the first qualifying poo
+        }
+      }
+    }
   }
+
 
   ctx.restore();
 }
