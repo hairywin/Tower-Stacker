@@ -107,8 +107,10 @@ function currentZoom(){
   let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
   const G = 3000;
   let jumpHold=false, holdTime=0, speed=500;
-  let poops=[];
-  let debugSlices = false;
+let poops=[];
+let debugSlices = false;
+let tripleFlash = { show: 0, rect: null }; // debug: flash expanded poo rect when triple is available
+
 
 // Double jump settings (+ conditional emergency triple)
 const MAX_JUMPS   = 2;
@@ -215,53 +217,63 @@ poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.r
     holdTime = 0;
   }
 function canEmergencyTriple(){
-  // Must have already used the double jump, be airborne & falling
+  // Must have already used the double jump, be airborne
   if (jumpPhase !== 2 || dog.onGround) return false;
-  if (dog.vy <= 0) return false; // only when descending
 
-  // Must be close to landing (last‑chance feel)
+  // Be forgiving at the top of the fall: treat vy >= -80 as “descending / about to descend”
+  if (dog.vy < -80) return false;
+
+  // Last‑chance: close to ground
   const distToGround = groundY - (dog.y + dog.h/2);
   if (distToGround > EMERGENCY_LAND_WINDOW) return false;
 
-  // Player bounds right now
+  // Player bounds
   const dogLeft   = dog.x - dog.w/2;
   const dogRight  = dog.x + dog.w/2;
   const dogTop    = dog.y - dog.h/2;
   const dogBottom = dog.y + dog.h/2;
 
-  // Look for any poo with an expanded AABB we’re about to collide with
+  let hitRect = null;
+
   for (const p of poops){
-    // Poo stored as center x and bottom y
+    // Poo rect (center x, bottom y)
     const pooLeft   = p.x - p.w/2;
     const pooRight  = p.x + p.w/2;
     const pooTop    = p.y - p.h;
     const pooBottom = p.y;
 
-    // Expand poo rect to mean “super close”
+    // Expanded “super close” rect
     const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
     const exRight  = pooRight  + EMERGENCY_PROXIMITY;
     const exTop    = pooTop    - EMERGENCY_PROXIMITY;
     const exBottom = pooBottom + EMERGENCY_PROXIMITY;
 
-    // Are we inside the expanded rectangle?
+    // Overlap check
     const overlaps =
       dogRight  >= exLeft  &&
       dogLeft   <= exRight &&
       dogBottom >= exTop   &&
       dogTop    <= exBottom;
-
     if (!overlaps) continue;
 
-    // Also require that the poo is in front (or barely overlapping) horizontally
-    const ahead = pooLeft - dogRight; // negative means it’s already overlapping our front
+    // Require “in front or barely overlapping”
+    const ahead = pooLeft - dogRight; // negative = slightly inside our nose already
     if (ahead < EMERGENCY_AHEAD_MIN || ahead > EMERGENCY_AHEAD_MAX) continue;
 
-    // All checks passed: we’re in genuine imminent danger
-    return true;
+    // Record debug flash rect
+    hitRect = { l: exLeft, t: exTop, r: exRight, b: exBottom };
+    break;
   }
 
+  if (hitRect){
+    // brief debug flash — only visible when debugSlices === true
+    tripleFlash.show = 0.08; // ~5 frames
+    tripleFlash.rect = hitRect;
+    return true;
+  }
   return false;
 }
+
 
 
 function doEmergencyTriple(){
@@ -455,53 +467,66 @@ const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
   }
 
   // Debug overlay (toggle with D)
-  function drawDebug(){
-    if (!cleanSprite) return;
-    ctx.save();
+function drawDebug(){
+  if (!cleanSprite) return;
+  ctx.save();
 
-    // Banner
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(8, 8, 290, 26);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#fff';
-    ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
+  // Banner
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(8, 8, 290, 26);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fff';
+  ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
 
-    // Dog bounds
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 2*dpr;
-    ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
+  // Dog bounds
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 2*dpr;
+  ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
 
-// Sprite sheet mini preview with grid + current frame (4×2, 384×512)
-    const padX = 10, padY = 42;
-    const sheetW = Math.min(260, canvas.width * 0.32);
-    const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
-    const sheetH = cleanSprite.height * scale; // 352 high
-    ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
+  // Sprite sheet mini preview with grid + current frame (4×2, 384×512)
+  const padX = 10, padY = 42;
+  const sheetW = Math.min(260, canvas.width * 0.32);
+  const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
+  const sheetH = cleanSprite.height * scale; // 352 high
+  ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
 
-    // Grid lines
-    ctx.strokeStyle = 'rgba(255,0,0,0.75)';
-    ctx.lineWidth = 1*dpr;
-    for (let c = 1; c < cols; c++){
-      const x = padX + Math.round((c * frameW) * scale);
-      ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
-    }
-    for (let r = 1; r < rows; r++){
-      const y = padY + Math.round((r * frameH) * scale);
-      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
-    }
-
-    // Highlight current frame
-    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-    const sx = (frameIndex % cols) * frameW;
-    const sy = Math.floor(frameIndex / cols) * frameH;
-    ctx.strokeStyle = 'yellow';
-    ctx.lineWidth = 2*dpr;
-    ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
-
-    ctx.restore();
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,0,0,0.75)';
+  ctx.lineWidth = 1*dpr;
+  for (let c = 1; c < cols; c++){
+    const x = padX + Math.round((c * frameW) * scale);
+    ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
   }
+  for (let r = 1; r < rows; r++){
+    const y = padY + Math.round((r * frameH) * scale);
+    ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
+  }
+
+  // Highlight current frame
+  const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+  const sx = (frameIndex % cols) * frameW;
+  const sy = Math.floor(frameIndex / cols) * frameH;
+  ctx.strokeStyle = 'yellow';
+  ctx.lineWidth = 2*dpr;
+  ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
+
+  // === Triple-jump proximity flash (debug) ===
+  if (tripleFlash && tripleFlash.show > 0 && tripleFlash.rect){
+    const a = Math.max(0, Math.min(1, tripleFlash.show / 0.08));
+    const { l, t, r, b } = tripleFlash.rect;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeStyle = '#00ff88';
+    ctx.strokeRect(l, t, r - l, b - t);
+    ctx.globalAlpha = 1;
+    tripleFlash.show -= 1/60; // decay
+  }
+
+  ctx.restore();
+}
+
 
   function render(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -509,7 +534,8 @@ const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
     for(const p of poops) drawPoo(p);
     drawDog();
     updateHud();
-    if (debugSlices) drawDebug();
+if (debugSlices) drawDebug();
+drawTripleFlash();
   }
   function updateHud(){ scoreHud.textContent = `Score 🦴: ${score} • Best: ${best}`; }
 
