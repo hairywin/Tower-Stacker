@@ -72,9 +72,10 @@
 function currentZoom(){
   const smallScreen = window.matchMedia('(max-width: 820px)').matches;
   const portrait = window.matchMedia('(orientation: portrait)').matches;
-  if(!smallScreen) return 0.85; // zoom in 15% on laptop/desktop
-  return portrait ? 0.92 : 0.96; // unchanged for iPhone/small screens
+  if(!smallScreen) return 1.15; // zoom IN 15% on laptop/desktop
+  return portrait ? 0.92 : 0.96; // unchanged on iPhone/small screens
 }
+
 
   let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
   let zoom = currentZoom();
