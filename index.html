@@ -110,6 +110,8 @@ function currentZoom(){
 let poops=[];
 let debugSlices = false;
 let tripleFlash = { show: 0, rect: null }; // debug: flash expanded poo rect when triple is available
+let tripleGrace = 0; // seconds left to still allow triple after window closes
+
 
 
 // Double jump settings (+ conditional emergency triple)
@@ -121,13 +123,15 @@ const HOLD_MAX_2  = 0.12;  // second jump hold cap
 let jumpsLeft = MAX_JUMPS;
 let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
 
-// Emergency triple jump tuning (more forgiving but still “super close”)
-const EMERGENCY_LAND_WINDOW = 80; // more time near ground
-const EMERGENCY_AHEAD_MIN   = -10; // slightly overlapping still allowed
-const EMERGENCY_AHEAD_MAX   = 90;  // ahead window where a poo counts as “imminent”
-const EMERGENCY_PROXIMITY   = 64; // larger “super close” bubble
+// Emergency triple jump tuning (earlier & easier)
+const EMERGENCY_LAND_WINDOW = 110; // trigger farther from the ground
+const EMERGENCY_AHEAD_MIN   = -14; // allow slight overlap
+const EMERGENCY_AHEAD_MAX   = 130; // count poo farther ahead
+const EMERGENCY_PROXIMITY   = 72;  // bigger “super close” bubble
 const EMERGENCY_V0          = -720; // third jump power (tune feel)
 const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
+const EMERGENCY_GRACE       = 0.12; // seconds you can still trigger after window
+
 
 
 
@@ -220,12 +224,15 @@ function canEmergencyTriple(){
   // Must have already used the double jump, be airborne
   if (jumpPhase !== 2 || dog.onGround) return false;
 
-  // Be forgiving at the top of the fall: treat vy >= -80 as “descending / about to descend”
-if (dog.vy < -40) return false; // slightly earlier window near apex
+  // Earlier eligibility near apex: allow while still rising a bit
+  if (dog.vy < -120) return false; // was -40
 
-  // Last‑chance: close to ground
+  // Last‑chance: close-ish to ground (but we’ve loosened it via constants)
   const distToGround = groundY - (dog.y + dog.h/2);
-  if (distToGround > EMERGENCY_LAND_WINDOW) return false;
+  if (distToGround > EMERGENCY_LAND_WINDOW) {
+    // Window not live — but if we recently had it, allow during grace
+    return tripleGrace > 0;
+  }
 
   // Player bounds
   const dogLeft   = dog.x - dog.w/2;
@@ -260,19 +267,24 @@ if (dog.vy < -40) return false; // slightly earlier window near apex
     const ahead = pooLeft - dogRight; // negative = slightly inside our nose already
     if (ahead < EMERGENCY_AHEAD_MIN || ahead > EMERGENCY_AHEAD_MAX) continue;
 
-    // Record debug flash rect
+    // Record debug rect + arm grace
     hitRect = { l: exLeft, t: exTop, r: exRight, b: exBottom };
+    tripleGrace = EMERGENCY_GRACE; // give a few frames to press
     break;
   }
 
   if (hitRect){
-    // brief debug flash — only visible when debugSlices === true
-    tripleFlash.show = 0.08; // ~5 frames
-    tripleFlash.rect = hitRect;
+    if (debugSlices){
+      tripleFlash.show = 0.08; // ~5 frames
+      tripleFlash.rect = hitRect;
+    }
     return true;
   }
-  return false;
+
+  // If we just left the window, allow during grace
+  return tripleGrace > 0;
 }
+
 
 
 
@@ -292,7 +304,8 @@ function doEmergencyTriple(){
   // Update
   function update(dt){
     if(state!=='running') return;
-    t+=dt;
+t+=dt;
+if (tripleGrace > 0) tripleGrace -= dt;
 
     // Parallax motion
     for (let c of clouds){ c.x -= (520 + t*34)*0.10*dt; if(c.x<-220){ c.x+=canvas.width+480; c.y=40+Math.random()*160; } }
@@ -315,12 +328,15 @@ const holdCap = (jumpPhase === 1) ? HOLD_MAX_1
     if(jumpHold && !dog.onGround && holdTime < holdCap && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
     dog.y += dog.vy*dt;
 
-    if(dog.y + dog.h/2 >= groundY){
-dog.y = groundY - dog.h/2 + 6; // lowered 6px
-      dog.vy=0;
-      if(!dog.onGround){ jumpsLeft = MAX_JUMPS; jumpPhase = 0; }
-      dog.onGround=true; holdTime=0;
-    }
+if(dog.y + dog.h/2 >= groundY){
+  dog.y = groundY - dog.h/2 + 6; // lowered 6px
+  dog.vy = 0;
+  if(!dog.onGround){ jumpsLeft = MAX_JUMPS; jumpPhase = 0; }
+  dog.onGround = true;
+  holdTime = 0;
+  tripleGrace = 0;              // <- clear grace on landing
+  tripleFlash.show = 0;         // <- clear any debug flash
+}
 
     // Move obstacles
     for(const p of poops){ p.x -= speed*dt; p.a += dt*1.8; }
@@ -514,7 +530,7 @@ function drawDebug(){
 
   // === Triple-jump proximity box (live, no button press needed) ===
   if (!dog.onGround && jumpPhase === 2) {
-const descendingSoon = (dog.vy >= -40); // keep in sync with canEmergencyTriple
+const descendingSoon = (dog.vy >= -120); // earlier window near apex (matches trigger)
     const distToGround = groundY - (dog.y + dog.h/2);
     if (descendingSoon && distToGround <= EMERGENCY_LAND_WINDOW) {
       const dogLeft   = dog.x - dog.w/2;
