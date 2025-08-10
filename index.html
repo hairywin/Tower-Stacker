@@ -104,6 +104,10 @@
   const G = 3000, HOLD_MAX=0.18; // HOLD_MAX kept for compatibility; per-jump caps below
   let jumpHold=false, holdTime=0, speed=500;
   let poops=[];
+  let debugSlices = false;
+window.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'd') debugSlices = !debugSlices;
+});
 
   // Double jump settings
   const MAX_JUMPS   = 2;
@@ -126,30 +130,43 @@
   // Load sprite externally (must be in repo root next to index.html)
   const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
   let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
-  rawImg.onload = ()=>{
-    const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
-    const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
-    const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
-    // carefully key out only the orange background band; preserve darker lines & fur
-    for(let i=0;i<d.length;i+=4){
-      const r=d[i], g=d[i+1], b=d[i+2];
-      const max=Math.max(r,g,b), min=Math.min(r,g,b);
-      const v=max/255, s=max===0?0:(max-min)/max;
-      let h=0;
-      if(max!==min){
-        if(max===r) h=(g-b)/(max-min);
-        else if(max===g) h=2+(b-r)/(max-min);
-        else h=4+(r-g)/(max-min);
-        h=(h*60); if(h<0) h+=360;
-      }
-      if(v < 0.22) continue; // keep dark ink lines
-      if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
+rawImg.onload = ()=>{
+  const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
+  const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
+  const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
+
+  // carefully key out only the orange background band; preserve darker lines & fur
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    const v=max/255, s=max===0?0:(max-min)/max;
+    let h=0;
+    if(max!==min){
+      if(max===r) h=(g-b)/(max-min);
+      else if(max===g) h=2+(b-r)/(max-min);
+      else h=4+(r-g)/(max-min);
+      h=(h*60); if(h<0) h+=360;
     }
-    octx.putImageData(img,0,0);
-    cleanSprite=off;
-    frameW=Math.floor(off.width/cols);
-    frameH=Math.floor(off.height/rows);
-  };
+    if(v < 0.22) continue; // keep dark ink lines
+    if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
+  }
+  octx.putImageData(img,0,0);
+  cleanSprite=off;
+
+  // 🔧 auto-detect sheet layout to avoid tail getting sliced/misaligned
+  const sheetAspect = off.width / off.height;
+  if (sheetAspect >= 1.5){ cols = 4; rows = 2; } else { cols = 2; rows = 4; }
+  totalFrames = cols * rows;
+
+  // compute frame size
+  frameW = Math.floor(off.width / cols);
+  frameH = Math.floor(off.height / rows);
+
+  // keep draw size proportional to the frame to prevent visual “tail cut”
+  const frameAspect = frameH / frameW;
+  dog.w = 160;
+  dog.h = Math.round(dog.w * frameAspect);
+};
 
   // Dog food image (replaces poop visuals)
   const foodImg = new Image();
