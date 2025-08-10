@@ -119,12 +119,14 @@ const HOLD_MAX_2  = 0.12;  // second jump hold cap
 let jumpsLeft = MAX_JUMPS;
 let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
 
-// Emergency triple jump tuning
-const EMERGENCY_LAND_WINDOW = 44; // px above ground counts as "landing soon"
-const EMERGENCY_AHEAD_MIN   = -8; // allow if poop is already slightly overlapping
-const EMERGENCY_AHEAD_MAX   = 70; // px ahead of dog's front where danger triggers
-const EMERGENCY_V0          = -700; // power for the third jump (a hair weaker than jump 2)
-const EMERGENCY_HOLD_MAX    = 0.10; // optional mini hold for the third jump
+// Emergency triple jump tuning (more forgiving but still “super close”)
+const EMERGENCY_LAND_WINDOW = 60;  // must be landing soon (px above ground)
+const EMERGENCY_AHEAD_MIN   = -10; // slightly overlapping still allowed
+const EMERGENCY_AHEAD_MAX   = 90;  // ahead window where a poo counts as “imminent”
+const EMERGENCY_PROXIMITY   = 56;  // expand poo hitbox by this px in all directions
+const EMERGENCY_V0          = -720; // third jump power (tune feel)
+const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
+
 
 
   // Runner
@@ -212,33 +214,55 @@ poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.r
     jumpHold = true;
     holdTime = 0;
   }
-  function canEmergencyTriple(){
-  // Only after you've used the second jump, while descending, and near landing
+function canEmergencyTriple(){
+  // Must have already used the double jump, be airborne & falling
   if (jumpPhase !== 2 || dog.onGround) return false;
-  if (dog.vy <= 0) return false; // must be falling
+  if (dog.vy <= 0) return false; // only when descending
 
-  // "landing soon" window
+  // Must be close to landing (last‑chance feel)
   const distToGround = groundY - (dog.y + dog.h/2);
   if (distToGround > EMERGENCY_LAND_WINDOW) return false;
 
-  // Check for a poop dangerously close in front of the dog
-  const dogLeft  = dog.x - dog.w/2;
-  const dogRight = dogLeft + dog.w;
+  // Player bounds right now
+  const dogLeft   = dog.x - dog.w/2;
+  const dogRight  = dog.x + dog.w/2;
+  const dogTop    = dog.y - dog.h/2;
+  const dogBottom = dog.y + dog.h/2;
 
-  let danger = false;
+  // Look for any poo with an expanded AABB we’re about to collide with
   for (const p of poops){
-const poopLeft = p.x - p.w/2;         // p.x is CENTER; convert to left edge
-const gap = poopLeft - dogRight;      // distance from dog's front to poop's left
-    if (gap >= EMERGENCY_AHEAD_MIN && gap <= EMERGENCY_AHEAD_MAX){
-      // also make sure vertical overlap will be true once we land
-      const pyTop = p.y - p.h;
-      // If our feet (bottom) will be at groundY and the poop spans into that space, it's a real threat
-      const willOverlapVertically = (groundY > pyTop); // simple but effective in this game
-      if (willOverlapVertically){ danger = true; break; }
-    }
+    // Poo stored as center x and bottom y
+    const pooLeft   = p.x - p.w/2;
+    const pooRight  = p.x + p.w/2;
+    const pooTop    = p.y - p.h;
+    const pooBottom = p.y;
+
+    // Expand poo rect to mean “super close”
+    const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
+    const exRight  = pooRight  + EMERGENCY_PROXIMITY;
+    const exTop    = pooTop    - EMERGENCY_PROXIMITY;
+    const exBottom = pooBottom + EMERGENCY_PROXIMITY;
+
+    // Are we inside the expanded rectangle?
+    const overlaps =
+      dogRight  >= exLeft  &&
+      dogLeft   <= exRight &&
+      dogBottom >= exTop   &&
+      dogTop    <= exBottom;
+
+    if (!overlaps) continue;
+
+    // Also require that the poo is in front (or barely overlapping) horizontally
+    const ahead = pooLeft - dogRight; // negative means it’s already overlapping our front
+    if (ahead < EMERGENCY_AHEAD_MIN || ahead > EMERGENCY_AHEAD_MAX) continue;
+
+    // All checks passed: we’re in genuine imminent danger
+    return true;
   }
-  return danger;
+
+  return false;
 }
+
 
 function doEmergencyTriple(){
   // Promote to phase 3, give a jump with a slightly smaller hold window
