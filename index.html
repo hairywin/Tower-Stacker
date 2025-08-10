@@ -125,8 +125,6 @@ let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
 
 // Emergency triple jump tuning (earlier & easier)
 const EMERGENCY_LAND_WINDOW = 125; // trigger farther from the ground
-const EMERGENCY_AHEAD_MIN   = -14; // allow slight overlap
-const EMERGENCY_AHEAD_MAX   = 150; // count poo farther ahead
 const EMERGENCY_PROXIMITY   = 72;  // bigger “super close” bubble
 const EMERGENCY_V0          = -720; // third jump power (tune feel)
 const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
@@ -263,9 +261,7 @@ function canEmergencyTriple(){
       dogTop    <= exBottom;
     if (!overlaps) continue;
 
-    // Require “in front or barely overlapping”
-    const ahead = pooLeft - dogRight; // negative = slightly inside our nose already
-    if (ahead < EMERGENCY_AHEAD_MIN || ahead > EMERGENCY_AHEAD_MAX) continue;
+
 
     // Record debug rect + arm grace
     hitRect = { l: exLeft, t: exTop, r: exRight, b: exBottom };
