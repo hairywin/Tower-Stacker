@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Brus Gotta Poo! (Closer Mobile Zoom + Bigger Maeve)</title>
+<title>Brus Gotta Poo! (v1.3 Debug + Tail Fix)</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
@@ -12,7 +12,6 @@
     --sun:#fff7b2;
     --hillBack:#c8d4e7; --hillFront:#b6c9e3;
     --groundBase:#dfd3b9; --groundShade:#c9b99a; --grass:#8fbe63; --path:#b49a77;
-    --poo:#6b3e19; --pooEdge:#4e2b10; --pooHi:#b27a3f;
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{height:100%;margin:0;background:var(--skyBot);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
@@ -36,7 +35,7 @@
   <div id="intro" class="overlay">
     <div class="card">
       <div class="title">Brus Gotta Poo!</div>
-      <div class="subtitle">Tap to Begin — v1.2</div>
+      <div class="subtitle">Tap to Begin — v1.3</div>
       <button id="startBtn" class="btn">Start</button>
     </div>
   </div>
@@ -52,25 +51,30 @@
   <div id="scoreHud" class="scoreHud">Score 🦴: 0 • Best: 0</div>
   <div class="hud">
     <button id="jumpBtn" class="btn">Jump (Tap/Space)</button>
-    <span class="subtitle" style="color:#000;opacity:.75">Quick taps = small hops, hold for higher jumps. Double jump enabled.</span>
+    <span class="subtitle" style="color:#000;opacity:.75">
+      Quick taps = small hops, hold for higher jumps. Double jump enabled. Press <b>D</b> for debug.
+    </span>
   </div>
 </div>
 
 <script>
 (()=>{
-  const VERSION = 'v1.2 Double Jump';
-  console.log('Brus Gotta Poo! Gameplay Tuned ' + VERSION);
+  const VERSION = 'v1.3 Debug + Tail Fix';
+  console.log('Brus Gotta Poo! ' + VERSION);
 
   // Canvas & sizing
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
-  // Less zoom-out on phones so gameplay feels closer-in, but still shows Maeve bags clearly
+  // Ensure the canvas can get keyboard focus if needed
+  canvas.tabIndex = 0;
+  canvas.style.outline = 'none';
+
   function currentZoom(){
     const smallScreen = window.matchMedia('(max-width: 820px)').matches;
     const portrait = window.matchMedia('(orientation: portrait)').matches;
-    if(!smallScreen) return 1;            // desktops/tablets: original scale
-    return portrait ? 0.92 : 0.96;        // was 0.78 / 0.86
+    if(!smallScreen) return 1;
+    return portrait ? 0.92 : 0.96;
   }
 
   let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
@@ -80,7 +84,6 @@
   function resize(){
     dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
     zoom = currentZoom();
-    // Increase backing store size relative to CSS size to effectively control zoom
     canvas.width  = Math.floor(window.innerWidth  * dpr / zoom);
     canvas.height = Math.floor(window.innerHeight * dpr / zoom);
     groundY = canvas.height * 0.80;
@@ -101,34 +104,10 @@
 
   // State
   let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
-  const G = 3000, HOLD_MAX=0.18; // HOLD_MAX kept for compatibility; per-jump caps below
+  const G = 3000;
   let jumpHold=false, holdTime=0, speed=500;
   let poops=[];
   let debugSlices = false;
-
-// Make the canvas keyboard-focusable so keys work reliably
-canvas.tabIndex = 0;
-canvas.style.outline = 'none';
-
-// Helper to toggle + log
-function toggleDebug(on){
-  debugSlices = (on === undefined) ? !debugSlices : !!on;
-  console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
-}
-
-// Key handler that works even if another element has focus
-function debugKeyHandler(e){
-  const k = (e.code || e.key || '').toLowerCase(); // supports 'KeyD' and 'd'
-  if (k === 'keyd' || k === 'd'){
-    e.preventDefault();
-    toggleDebug();
-  }
-}
-
-// Listen at both window and document, capture phase to intercept early
-window.addEventListener('keydown', debugKeyHandler, { capture: true });
-document.addEventListener('keydown', debugKeyHandler, { capture: true });
-
 
   // Double jump settings
   const MAX_JUMPS   = 2;
@@ -146,69 +125,64 @@ document.addEventListener('keydown', debugKeyHandler, { capture: true });
   // Spawning (existing)
   let minGap=1.4, maxGap=2.0, spawnTimer=0, nextGap=rand(minGap,maxGap);
   function rand(a,b){ return a + Math.random()*(b-a); }
-  function aabb(dx,dy,dw,dh,px,pyTop,pw,phBottom){ return dx < px + pw && dx + dw > px && dy < pyTop + phBottom && dy + dh > pyTop; }
 
-  // Load sprite externally (must be in repo root next to index.html)
+  // Assets
   const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
   let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
-  // Will hold pixel-perfect slice info accessible to drawDog()
-let colEdges = null, rowEdges = null;
-let frameRect = null; // function set on load to return {sx, sy, sw, sh}
+  let colEdges=null, rowEdges=null;
+  let frameRect=null; // function(i) => {sx, sy, sw, sh}
 
-rawImg.onload = ()=>{
-  const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
-  const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
-  const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
+  rawImg.onload = ()=>{
+    // clean the sheet (chroma key the orange band)
+    const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
+    const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
+    const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
 
-  // carefully key out only the orange background band; preserve darker lines & fur
-  for(let i=0;i<d.length;i+=4){
-    const r=d[i], g=d[i+1], b=d[i+2];
-    const max=Math.max(r,g,b), min=Math.min(r,g,b);
-    const v=max/255, s=max===0?0:(max-min)/max;
-    let h=0;
-    if(max!==min){
-      if(max===r) h=(g-b)/(max-min);
-      else if(max===g) h=2+(b-r)/(max-min);
-      else h=4+(r-g)/(max-min);
-      h=(h*60); if(h<0) h+=360;
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i], g=d[i+1], b=d[i+2];
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const v=max/255, s=max===0?0:(max-min)/max;
+      let h=0;
+      if(max!==min){
+        if(max===r) h=(g-b)/(max-min);
+        else if(max===g) h=2+(b-r)/(max-min);
+        else h=4+(r-g)/(max-min);
+        h=(h*60); if(h<0) h+=360;
+      }
+      if(v < 0.22) continue; // keep dark ink lines
+      if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
     }
-    if(v < 0.22) continue; // keep dark ink lines
-    if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
-  }
-  octx.putImageData(img,0,0);
-  cleanSprite=off;
+    octx.putImageData(img,0,0);
+    cleanSprite=off;
 
-  // 🔧 auto-detect sheet layout to avoid tail getting sliced/misaligned
-  const sheetAspect = off.width / off.height;
-  if (sheetAspect >= 1.5){ cols = 4; rows = 2; } else { cols = 2; rows = 4; }
-  totalFrames = cols * rows;
+    // Auto-detect layout
+    const sheetAspect = off.width / off.height;
+    if (sheetAspect >= 1.5){ cols = 4; rows = 2; } else { cols = 2; rows = 4; }
+    totalFrames = cols * rows;
 
-// Pixel-perfect slice edges so frames never steal a column/row of pixels
-colEdges = Array.from({ length: cols + 1 }, (_, i) => Math.round(i * off.width  / cols));
-rowEdges = Array.from({ length: rows + 1 }, (_, i) => Math.round(i * off.height / rows));
+    // Pixel-perfect frame edges (TAIL-SLICE FIX)
+    colEdges = Array.from({length: cols + 1}, (_, i) => Math.round(i * off.width  / cols));
+    rowEdges = Array.from({length: rows + 1}, (_, i) => Math.round(i * off.height / rows));
 
-// Helper to get the exact source rect for a given frame index
-frameRect = function(i){
-  const c = i % cols, r = Math.floor(i / cols);
-  const sx = colEdges[c],   sy = rowEdges[r];
-  const sw = colEdges[c+1] - colEdges[c];
-  const sh = rowEdges[r+1] - rowEdges[r];
-  return { sx, sy, sw, sh };
-};
+    frameRect = function(i){
+      const c = i % cols, r = Math.floor(i / cols);
+      const sx = colEdges[c],   sy = rowEdges[r];
+      const sw = colEdges[c+1] - colEdges[c];
+      const sh = rowEdges[r+1] - rowEdges[r];
+      return { sx, sy, sw, sh };
+    };
 
-// Use the first cell to set aspect for on-canvas size
-frameW = colEdges[1] - colEdges[0];
-frameH = rowEdges[1] - rowEdges[0];
+    // Size dog based on one frame's aspect
+    frameW = colEdges[1] - colEdges[0];
+    frameH = rowEdges[1] - rowEdges[0];
+    const frameAspect = frameH / frameW;
+    dog.w = 160;
+    dog.h = Math.round(dog.w * frameAspect);
+  };
 
-const frameAspect = frameH / frameW;
-dog.w = 160;
-dog.h = Math.round(dog.w * frameAspect);
-
-};
-
-  // Dog food image (replaces poop visuals)
+  // Maeve bag image
   const foodImg = new Image();
-  foodImg.src = 'maeve.png';        // file is in the same folder as index.html
+  foodImg.src = 'maeve.png';
   let foodReady = false;
   foodImg.onload = () => { foodReady = true; };
 
@@ -252,7 +226,6 @@ dog.h = Math.round(dog.w * frameAspect);
 
   // Double jump helpers
   function doJump(){
-    // determine phase & initial velocity
     jumpPhase = dog.onGround ? 1 : Math.min(2, jumpPhase + 1);
     const v0 = (jumpPhase === 1) ? JUMP_V0_1 : JUMP_V0_2;
     dog.vy = v0;
@@ -265,12 +238,13 @@ dog.h = Math.round(dog.w * frameAspect);
   function update(dt){
     if(state!=='running') return;
     t+=dt;
+
     // Parallax motion
     for (let c of clouds){ c.x -= (520 + t*34)*0.10*dt; if(c.x<-220){ c.x+=canvas.width+480; c.y=40+Math.random()*160; } }
     for (let h of hillsBack){ h.x -= (520 + t*34)*0.16*dt; if(h.x<-520) h.x+=canvas.width+520; }
     for (let h of hillsFront){ h.x -= (520 + t*34)*0.22*dt; if(h.x<-420) h.x+=canvas.width+420; }
 
-    // Speed + spawn tightening (uses canvas width so the view scale remains proportional)
+    // Speed + spawn tightening
     speed += dt*34;
     minGap = Math.max(0.35, minGap - dt*0.06);
     maxGap = Math.max(minGap + 0.22, maxGap - dt*0.052);
@@ -283,6 +257,7 @@ dog.h = Math.round(dog.w * frameAspect);
     const holdCap = (jumpPhase === 1) ? HOLD_MAX_1 : HOLD_MAX_2;
     if(jumpHold && !dog.onGround && holdTime < holdCap && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
     dog.y += dog.vy*dt;
+
     if(dog.y + dog.h/2 >= groundY){
       dog.y = groundY - dog.h/2;
       dog.vy=0;
@@ -290,40 +265,22 @@ dog.h = Math.round(dog.w * frameAspect);
       dog.onGround=true; holdTime=0;
     }
 
-    // Move poops
+    // Move obstacles
     for(const p of poops){ p.x -= speed*dt; p.a += dt*1.8; }
     poops = poops.filter(p => p.x + p.w > 0);
 
     // Collisions
     const dx = dog.x - dog.w/2, dy = dog.y - dog.h/2;
-    for(const p of poops){ const px=p.x, pw=p.w, pyTop=p.y - p.h; if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){ return gameOver(); } }
+    for(const p of poops){
+      const px=p.x, pw=p.w, pyTop=p.y - p.h;
+      if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){ return gameOver(); }
+    }
 
     // Score
     score += Math.floor(dt*100);
   }
 
-  // Draw
-  function drawSky(){
-    // Sun glow
-    const x=sun.x(), y=sun.y(), r=sun.r;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r*3);
-    g.addColorStop(0, 'rgba(255,247,178,0.9)');
-    g.addColorStop(1, 'rgba(255,247,178,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2); ctx.fill();
-    // Clouds
-    for (let c of clouds){
-      ctx.fillStyle='rgba(255,255,255,0.95)';
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, c.r, 0, Math.PI*2);
-      ctx.arc(c.x+c.r*0.9, c.y- c.r*0.5, c.r*0.85, 0, Math.PI*2);
-      ctx.arc(c.x+c.r*1.8, c.y, c.r*1.1, 0, Math.PI*2);
-      ctx.arc(c.x+c.r*0.9, c.y+c.r*0.5, c.r*0.9, 0, Math.PI*2);
-      ctx.fill();
-    }
-    // Hills
-    drawHills(hillsBack, getComputedStyle(document.documentElement).getPropertyValue('--hillBack').trim()||'#c8d4e7');
-    drawHills(hillsFront,getComputedStyle(document.documentElement).getPropertyValue('--hillFront').trim()||'#b6c9e3');
-  }
+  // Draw helpers
   function drawHills(list, color){
     ctx.fillStyle=color;
     for (let h of list){
@@ -333,25 +290,39 @@ dog.h = Math.round(dog.w * frameAspect);
       ctx.closePath(); ctx.fill();
     }
   }
+  function drawSky(){
+    const x=sun.x(), y=sun.y(), r=sun.r;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r*3);
+    g.addColorStop(0, 'rgba(255,247,178,0.9)');
+    g.addColorStop(1, 'rgba(255,247,178,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2); ctx.fill();
+    for (let c of clouds){
+      ctx.fillStyle='rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*0.9, c.y- c.r*0.5, c.r*0.85, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*1.8, c.y, c.r*1.1, 0, Math.PI*2);
+      ctx.arc(c.x+c.r*0.9, c.y+c.r*0.5, c.r*0.9, 0, Math.PI*2);
+      ctx.fill();
+    }
+    drawHills(hillsBack, getComputedStyle(document.documentElement).getPropertyValue('--hillBack').trim()||'#c8d4e7');
+    drawHills(hillsFront,getComputedStyle(document.documentElement).getPropertyValue('--hillFront').trim()||'#b6c9e3');
+  }
   function drawGround(){
-    // Base soil
     const base = getComputedStyle(document.documentElement).getPropertyValue('--groundBase').trim()||'#dfd3b9';
     const shade= getComputedStyle(document.documentElement).getPropertyValue('--groundShade').trim()||'#c9b99a';
     const grd = ctx.createLinearGradient(0,  groundY, 0, canvas.height);
     grd.addColorStop(0, shade); grd.addColorStop(1, base);
     ctx.fillStyle=grd; ctx.fillRect(0, groundY, canvas.width, canvas.height-groundY);
 
-    // Grass strip
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--grass').trim()||'#8fbe63';
     ctx.fillRect(0, groundY-8, canvas.width, 8);
 
-    // Path ticks (scrolling)
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--path').trim()||'#b49a77';
     const step=28, off=(t*140)%step;
     for(let x=-step;x<canvas.width+step;x+=step) ctx.fillRect(Math.floor(x-off), groundY+10, 14, 6);
 
-    // Random grass tufts
-    const seed = Math.floor(t*2); // change occasionally
+    const seed = Math.floor(t*2);
     for(let i=0;i<8;i++){
       const gx = (i*120 + (seed*53)%120 + (t*60)%120) % (canvas.width+120) - 60;
       const gy = groundY-8;
@@ -359,12 +330,9 @@ dog.h = Math.round(dog.w * frameAspect);
       ctx.beginPath(); ctx.moveTo(gx,gy); ctx.quadraticCurveTo(gx+6, gy-10, gx+2, gy-2); ctx.moveTo(gx+10,gy); ctx.quadraticCurveTo(gx+16, gy-12, gx+12, gy-2); ctx.stroke();
     }
   }
-
-  // Draw Maeve bag instead of poop; make it bigger so branding is clearly visible
   function drawPoo(p){
     ctx.save();
     ctx.translate(p.x, p.y);
-    // ground shadow
     ctx.fillStyle='rgba(0,0,0,.18)';
     ctx.beginPath();
     ctx.ellipse(0, -6, p.w*0.42, 7, 0, 0, Math.PI*2);
@@ -374,97 +342,86 @@ dog.h = Math.round(dog.w * frameAspect);
       const iw = foodImg.naturalWidth || foodImg.width || 1;
       const ih = foodImg.naturalHeight || foodImg.height || 1;
       const aspect = ih / iw;
-
-      const targetW = p.w * 2.2;        // was 1.80 — larger for visibility
+      const targetW = p.w * 2.2;
       const targetH = targetW * aspect;
-
-      const wobble = Math.sin(p.a * 0.8) * 0.08; // subtle rotation
+      const wobble = Math.sin(p.a * 0.8) * 0.08;
       ctx.rotate(wobble);
-
-      // Place so bottom of image sits near ground line
       const yOffset = -Math.max(targetH, p.h * 0.95);
       ctx.drawImage(foodImg, -targetW/2, yOffset, targetW, targetH);
     } else {
-      // Fallback placeholder until image loads
       ctx.fillStyle = '#888';
       ctx.fillRect(-p.w*0.5, -p.h, p.w, p.h);
     }
-
     ctx.restore();
   }
-
-  function blob(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y, x+w,y+h, r); ctx.arcTo(x+w,y+h, x,y+h, r); ctx.arcTo(x,y+h, x,y, r); ctx.arcTo(x,y, x+w,y, r); ctx.fill(); ctx.stroke(); }
-
   function drawDog(){
     if(!cleanSprite){ return; }
     const tilt = Math.max(-0.12, Math.min(0.16, dog.vy/1600));
     ctx.save(); ctx.translate(dog.x, dog.y); ctx.rotate(tilt);
     const fps = 6; dog.frame = (dog.frame + fps/60) % totalFrames;
-   const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-if (frameRect){
-  const { sx, sy, sw, sh } = frameRect(frameIndex);
-  ctx.drawImage(cleanSprite, sx, sy, sw, sh, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
-} else {
-  // Fallback (shouldn’t happen after load), keeps things drawing
-  const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
-  ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
-}
+    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+
+    if (frameRect){
+      const { sx, sy, sw, sh } = frameRect(frameIndex);
+      ctx.drawImage(cleanSprite, sx, sy, sw, sh, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+    } else {
+      // Fallback (rare): uniform tiles
+      const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
+      ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
+    }
+    ctx.restore();
+  }
+
+  // Debug overlay (toggle with D)
+  function drawDebug(){
+    if (!cleanSprite) return;
+    ctx.save();
+
+    // Banner
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(8, 8, 250, 26);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
+
+    // Dog bounds
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 2*dpr;
+    ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
+
+    // Sprite sheet mini preview with grid + current frame
+    const padX = 10, padY = 42;
+    const sheetW = Math.min(260, canvas.width * 0.32);
+    const scale  = sheetW / cleanSprite.width;
+    const sheetH = cleanSprite.height * scale;
+    ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
+
+    // Grid lines (use detected cols/rows)
+    ctx.strokeStyle = 'rgba(255,0,0,0.75)';
+    ctx.lineWidth = 1*dpr;
+    for (let c = 1; c < cols; c++){
+      const x = padX + Math.round((c * cleanSprite.width / cols) * scale);
+      ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
+    }
+    for (let r = 1; r < rows; r++){
+      const y = padY + Math.round((r * cleanSprite.height / rows) * scale);
+      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
+    }
+
+    // Highlight current frame
+    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+    const sx = (frameIndex % cols) * (cleanSprite.width / cols);
+    const sy = Math.floor(frameIndex / cols) * (cleanSprite.height / rows);
+    const sw = cleanSprite.width / cols;
+    const sh = cleanSprite.height / rows;
+    ctx.strokeStyle = 'yellow';
+    ctx.lineWidth = 2*dpr;
+    ctx.strokeRect(padX + sx * scale, padY + sy * scale, sw * scale, sh * scale);
 
     ctx.restore();
   }
-  // Debug overlay for sprite slicing
-function drawDebug(){
-  if (!cleanSprite) return;
-
-  ctx.save();
-
-  // Banner
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(8, 8, 250, 26);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = '#fff';
-  ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-  ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
-
-  // Outline dog’s draw area
-  ctx.strokeStyle = 'red';
-  ctx.lineWidth = 2*dpr;
-  ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
-
-  // Mini sprite sheet preview
-  const padX = 10, padY = 42;
-  const sheetW = Math.min(260, canvas.width * 0.32);
-  const scale  = sheetW / cleanSprite.width;
-  const sheetH = cleanSprite.height * scale;
-
-  ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
-
-  // Grid lines for frames
-  ctx.strokeStyle = 'rgba(255,0,0,0.75)';
-  ctx.lineWidth = 1*dpr;
-  for (let c = 1; c < cols; c++){
-    const x = padX + Math.round((c * cleanSprite.width / cols) * scale);
-    ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
-  }
-  for (let r = 1; r < rows; r++){
-    const y = padY + Math.round((r * cleanSprite.height / rows) * scale);
-    ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
-  }
-
-  // Highlight current frame
-  const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-  const sx = (frameIndex % cols) * (cleanSprite.width / cols);
-  const sy = Math.floor(frameIndex / cols) * (cleanSprite.height / rows);
-  const sw = cleanSprite.width / cols;
-  const sh = cleanSprite.height / rows;
-  ctx.strokeStyle = 'yellow';
-  ctx.lineWidth = 2*dpr;
-  ctx.strokeRect(padX + sx * scale, padY + sy * scale, sw * scale, sh * scale);
-
-  ctx.restore();
-}
-
 
   function render(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -472,8 +429,7 @@ function drawDebug(){
     for(const p of poops) drawPoo(p);
     drawDog();
     updateHud();
-    if (debugSlices) drawDebug();
-
+    if (debugSlices) drawDebug(); // ensure overlay actually renders
   }
   function updateHud(){ scoreHud.textContent = `Score 🦴: ${score} • Best: ${best}`; }
 
@@ -504,6 +460,18 @@ function drawDebug(){
   canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
   window.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); }}, {passive:false});
   window.addEventListener('keyup',   e=>{ if(e.code==='Space'){ e.preventDefault(); release(); }}, {passive:false});
+
+  // Robust D toggle: works no matter what has focus
+  function debugKeyHandler(e){
+    const k = (e.code || e.key || '').toLowerCase();
+    if (k === 'keyd' || k === 'd'){
+      e.preventDefault();
+      debugSlices = !debugSlices;
+      console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
+    }
+  }
+  window.addEventListener('keydown', debugKeyHandler, { capture: true });
+  document.addEventListener('keydown', debugKeyHandler, { capture: true });
 
   // Boot
   reset(); requestAnimationFrame(loop);
