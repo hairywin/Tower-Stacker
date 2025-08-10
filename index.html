@@ -285,25 +285,6 @@ function canEmergencyTriple(){
   return tripleGrace > 0;
 }
 
-// === Debug helper: does THIS poo currently qualify to arm the triple? ===
-function debugEligibleTripleAgainst(p){
-  if (dog.onGround || jumpPhase !== 2) return false;
-
-  // Must be near/after apex and close-ish to ground (same gates as trigger)
-  const descendingSoon = (dog.vy >= -120);
-  const distToGround = groundY - (dog.y + dog.h/2);
-  if (!(descendingSoon && distToGround <= EMERGENCY_LAND_WINDOW)) return false;
-
-  // Must be within the forward/behind window
-  const dogRight = dog.x + dog.w/2;
-  const pooLeft  = p.x - p.w/2;
-  const ahead    = pooLeft - dogRight;
-  if (ahead < EMERGENCY_AHEAD_MIN || ahead > EMERGENCY_AHEAD_MAX) return false;
-
-  return true;
-}
-
-
 
 function doEmergencyTriple(){
   // Promote to phase 3, give a jump with a slightly smaller hold window
@@ -545,72 +526,29 @@ function drawDebug(){
   ctx.lineWidth = 2*dpr;
   ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
 
-  // === Triple-jump proximity box (live, no button press needed) ===
-  if (!dog.onGround && jumpPhase === 2) {
-const descendingSoon = (dog.vy >= -120); // earlier window near apex (matches trigger)
-    const distToGround = groundY - (dog.y + dog.h/2);
-    if (descendingSoon && distToGround <= EMERGENCY_LAND_WINDOW) {
-      const dogLeft   = dog.x - dog.w/2;
-      const dogRight  = dog.x + dog.w/2;
-      const dogTop    = dog.y - dog.h/2;
-      const dogBottom = dog.y + dog.h/2;
 
-      for (const p of poops){
-        const pooLeft   = p.x - p.w/2;
-        const pooRight  = p.x + p.w/2;
-        const pooTop    = p.y - p.h;
-        const pooBottom = p.y;
+// Blue circle: static triple-jump proximity bubble around every poo
+for (const p of poops){
+  const cx = p.x;
+  const cy = p.y - p.h/2;
+  const R  = EMERGENCY_PROXIMITY;
 
-        const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
-        const exRight  = pooRight  + EMERGENCY_PROXIMITY;
-        const exTop    = pooTop    - EMERGENCY_PROXIMITY;
-        const exBottom = pooBottom + EMERGENCY_PROXIMITY;
+  ctx.save();
+  ctx.lineWidth = 3 * dpr;
+  ctx.strokeStyle = '#1e88ff';
+  ctx.globalAlpha = 0.95;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.stroke();
 
-        const overlaps =
-          dogRight  >= exLeft  &&
-          dogLeft   <= exRight &&
-          dogBottom >= exTop   &&
-          dogTop    <= exBottom;
+  ctx.globalAlpha = 0.10; // lighter fill since it's always visible
+  ctx.fillStyle = '#1e88ff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
 
-        const ahead = pooLeft - dogRight; // negative = slightly overlapping already
-        const okayAhead = (ahead >= EMERGENCY_AHEAD_MIN && ahead <= EMERGENCY_AHEAD_MAX);
-
-        if (overlaps && okayAhead){
-          ctx.save();
-          ctx.lineWidth = 3 * dpr;
-          ctx.strokeStyle = '#00ff88';
-          ctx.strokeRect(exLeft, exTop, exRight - exLeft, exBottom - exTop);
-          ctx.restore();
-          break; // draw only the first qualifying poo
-        }
-      }
-    }
-  }
-  // Blue circle: the live "triple zone" around poos that could arm triple now
-  for (const p of poops){
-    if (!debugEligibleTripleAgainst(p)) continue;
-
-    // Circle centered roughly on the poo
-    const cx = p.x;
-    const cy = p.y - p.h/2;
-    const R  = EMERGENCY_PROXIMITY;
-
-    ctx.save();
-    ctx.lineWidth = 3 * dpr;
-    ctx.strokeStyle = '#1e88ff';
-    ctx.globalAlpha = 0.95;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Soft fill so it's easy to see without being distracting
-    ctx.globalAlpha = 0.15;
-    ctx.fillStyle = '#1e88ff';
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
 
 
   ctx.restore();
