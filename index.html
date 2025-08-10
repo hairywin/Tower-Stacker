@@ -227,7 +227,8 @@ poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.r
 
   let danger = false;
   for (const p of poops){
-    const gap = p.x - dogRight; // distance from dog's front to poop's left
+const poopLeft = p.x - p.w/2;         // p.x is CENTER; convert to left edge
+const gap = poopLeft - dogRight;      // distance from dog's front to poop's left
     if (gap >= EMERGENCY_AHEAD_MIN && gap <= EMERGENCY_AHEAD_MAX){
       // also make sure vertical overlap will be true once we land
       const pyTop = p.y - p.h;
