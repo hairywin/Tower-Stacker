@@ -514,7 +514,7 @@ function drawDebug(){
 
   // === Triple-jump proximity box (live, no button press needed) ===
   if (!dog.onGround && jumpPhase === 2) {
-    const descendingSoon = (dog.vy >= -80); // be a bit forgiving near the apex
+const descendingSoon = (dog.vy >= -40); // keep in sync with canEmergencyTriple
     const distToGround = groundY - (dog.y + dog.h/2);
     if (descendingSoon && distToGround <= EMERGENCY_LAND_WINDOW) {
       const dogLeft   = dog.x - dog.w/2;
