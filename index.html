@@ -391,6 +391,59 @@ if (frameRect){
 
     ctx.restore();
   }
+  // Debug overlay for sprite slicing
+function drawDebug(){
+  if (!cleanSprite) return;
+
+  ctx.save();
+
+  // Banner
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(8, 8, 250, 26);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fff';
+  ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+  ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
+
+  // Outline dog’s draw area
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 2*dpr;
+  ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
+
+  // Mini sprite sheet preview
+  const padX = 10, padY = 42;
+  const sheetW = Math.min(260, canvas.width * 0.32);
+  const scale  = sheetW / cleanSprite.width;
+  const sheetH = cleanSprite.height * scale;
+
+  ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
+
+  // Grid lines for frames
+  ctx.strokeStyle = 'rgba(255,0,0,0.75)';
+  ctx.lineWidth = 1*dpr;
+  for (let c = 1; c < cols; c++){
+    const x = padX + Math.round((c * cleanSprite.width / cols) * scale);
+    ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
+  }
+  for (let r = 1; r < rows; r++){
+    const y = padY + Math.round((r * cleanSprite.height / rows) * scale);
+    ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
+  }
+
+  // Highlight current frame
+  const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+  const sx = (frameIndex % cols) * (cleanSprite.width / cols);
+  const sy = Math.floor(frameIndex / cols) * (cleanSprite.height / rows);
+  const sw = cleanSprite.width / cols;
+  const sh = cleanSprite.height / rows;
+  ctx.strokeStyle = 'yellow';
+  ctx.lineWidth = 2*dpr;
+  ctx.strokeRect(padX + sx * scale, padY + sy * scale, sw * scale, sh * scale);
+
+  ctx.restore();
+}
+
 
   function render(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -398,6 +451,8 @@ if (frameRect){
     for(const p of poops) drawPoo(p);
     drawDog();
     updateHud();
+    if (debugSlices) drawDebug();
+
   }
   function updateHud(){ scoreHud.textContent = `Score 🦴: ${score} • Best: ${best}`; }
 
