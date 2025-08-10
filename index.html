@@ -285,6 +285,23 @@ function canEmergencyTriple(){
   return tripleGrace > 0;
 }
 
+// === Debug helper: does THIS poo currently qualify to arm the triple? ===
+function debugEligibleTripleAgainst(p){
+  if (dog.onGround || jumpPhase !== 2) return false;
+
+  // Must be near/after apex and close-ish to ground (same gates as trigger)
+  const descendingSoon = (dog.vy >= -120);
+  const distToGround = groundY - (dog.y + dog.h/2);
+  if (!(descendingSoon && distToGround <= EMERGENCY_LAND_WINDOW)) return false;
+
+  // Must be within the forward/behind window
+  const dogRight = dog.x + dog.w/2;
+  const pooLeft  = p.x - p.w/2;
+  const ahead    = pooLeft - dogRight;
+  if (ahead < EMERGENCY_AHEAD_MIN || ahead > EMERGENCY_AHEAD_MAX) return false;
+
+  return true;
+}
 
 
 
@@ -568,6 +585,31 @@ const descendingSoon = (dog.vy >= -120); // earlier window near apex (matches tr
         }
       }
     }
+  }
+  // Blue circle: the live "triple zone" around poos that could arm triple now
+  for (const p of poops){
+    if (!debugEligibleTripleAgainst(p)) continue;
+
+    // Circle centered roughly on the poo
+    const cx = p.x;
+    const cy = p.y - p.h/2;
+    const R  = EMERGENCY_PROXIMITY;
+
+    ctx.save();
+    ctx.lineWidth = 3 * dpr;
+    ctx.strokeStyle = '#1e88ff';
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Soft fill so it's easy to see without being distracting
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#1e88ff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
 
