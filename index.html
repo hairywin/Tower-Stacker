@@ -183,14 +183,14 @@ foodImg.src = 'poo.png';
   }
 
   function spawnPoo(){
-poops.push({ x: canvas.width + 50, y: groundY + 10, w: 52, h: 42, a: Math.random()*Math.PI*2 });
+poops.push({ x: canvas.width + 50, y: groundY + 22, w: 52, h: 42, a: Math.random()*Math.PI*2 });
     const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
     if(Math.random() < chance){
       const tight = Math.min(1, t/30);
       const dmin = 54 - 30*tight;
       const dmax = 90 - 42*tight;
       const dx = dmin + Math.random()*(dmax - dmin);
-poops.push({ x: canvas.width + 50 + dx, y: groundY + 10, w: 48, h: 38, a: Math.random()*Math.PI*2 });
+poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.random()*Math.PI*2 });
     }
   }
 
@@ -316,7 +316,7 @@ dog.y = groundY - dog.h/2 + 6; // lowered 6px
       const targetH = targetW * aspect;
       const wobble = Math.sin(p.a * 0.8) * 0.08;
       ctx.rotate(wobble);
-      const yOffset = -Math.max(targetH, p.h * 0.95);
+const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
       ctx.drawImage(foodImg, -targetW/2, yOffset, targetW, targetH);
     } else {
       ctx.fillStyle = '#888';
