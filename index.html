@@ -337,13 +337,7 @@ const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.60; // bigger lean
   ctx.quadraticCurveTo(16 * hScale, -blade2, 12 * hScale, -2 * hScale);
   ctx.stroke();
 
-  // ~1 in 12 shrubs gets a tiny flower for charm
-if (rand(worldIndex + 1.234) < 1 / 5) {
-ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sun').trim() || '#ffcf6d';
-    ctx.beginPath();
-    ctx.arc(8 * hScale, -blade2 * 0.9, 2 * dpr, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // no flowers on shrubs
 
   ctx.restore();
 }
