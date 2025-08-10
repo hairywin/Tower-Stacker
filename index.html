@@ -313,8 +313,9 @@ for (let i = 0; i < shrubCount; i++) {
   // stable per-shrub variation while it’s on screen
   const worldIndex = i + Math.floor((phase + drift) / shrubSpacing);
 
-  const hScale = 0.85 + rand(worldIndex) * 0.45;        // 0.85–1.30 height
-  const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.25;  // slight left/right lean
+const hScale = 0.60 + rand(worldIndex) * 1.00;        // 0.60–1.60 (much wider)
+const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.60; // bigger lean
+
 
   ctx.save();
   ctx.translate(gx, gy);
@@ -337,8 +338,8 @@ for (let i = 0; i < shrubCount; i++) {
   ctx.stroke();
 
   // ~1 in 12 shrubs gets a tiny flower for charm
-  if (rand(worldIndex + 1.234) < 1 / 12) {
-    ctx.fillStyle = '#ffcf6d';
+if (rand(worldIndex + 1.234) < 1 / 5) {
+ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sun').trim() || '#ffcf6d';
     ctx.beginPath();
     ctx.arc(8 * hScale, -blade2 * 0.9, 2 * dpr, 0, Math.PI * 2);
     ctx.fill();
