@@ -48,6 +48,14 @@
     </div>
   </div>
 
+  <!-- NEW: Pause overlay -->
+  <div id="paused" class="overlay hidden">
+    <div class="card">
+      <div class="title">Paused ⏸️</div>
+      <div class="subtitle">Tap or press P to resume</div>
+    </div>
+  </div>
+
   <div id="scoreHud" class="scoreHud">Score 🦴: 0 • Best: 0</div>
   <div class="hud">
     <button id="jumpBtn" class="btn">Jump (Tap/Space)</button>
@@ -69,13 +77,12 @@
   canvas.tabIndex = 0; // allow keyboard focus
   canvas.style.outline = 'none';
 
-function currentZoom(){
-  const smallScreen = window.matchMedia('(max-width: 820px)').matches;
-  const portrait = window.matchMedia('(orientation: portrait)').matches;
-  if(!smallScreen) return 1.25; // zoom IN 15% on laptop/desktop
-  return portrait ? 0.92 : 0.96; // unchanged on iPhone/small screens
-}
-
+  function currentZoom(){
+    const smallScreen = window.matchMedia('(max-width: 820px)').matches;
+    const portrait = window.matchMedia('(orientation: portrait)').matches;
+    if(!smallScreen) return 1.25; // zoom IN 15% on laptop/desktop
+    return portrait ? 0.92 : 0.96; // unchanged on iPhone/small screens
+  }
 
   let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
   let zoom = currentZoom();
@@ -95,6 +102,7 @@ function currentZoom(){
   // DOM
   const intro = document.getElementById('intro');
   const over  = document.getElementById('gameOver');
+  const pausedOverlay = document.getElementById('paused');
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const jumpBtn = document.getElementById('jumpBtn');
@@ -105,33 +113,36 @@ function currentZoom(){
 
   // State
   let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
+  let isPaused = false;
   const G = 3000;
   let jumpHold=false, holdTime=0, speed=500;
-let poops=[];
-let debugSlices = false;
-let tripleFlash = { show: 0, rect: null }; // debug: flash expanded poo rect when triple is available
-let tripleGrace = 0; // seconds left to still allow triple after window closes
+  let poops=[];
+  // Persisted debug toggle
+  let debugSlices = localStorage.getItem('bru_debug') === '1';
+  let tripleFlash = { show: 0, rect: null }; // debug: flash expanded poo rect when triple is available
+  let tripleGrace = 0; // seconds left to still allow triple after window closes
 
+  // Feel-good jump helpers (coyote time + jump buffer)
+  const COYOTE_TIME = 0.10;   // seconds after leaving ground where jump still allowed
+  const JUMP_BUFFER = 0.12;   // seconds before landing we remember a jump press
+  let coyoteTimer = 0;
+  let jumpBufferTimer = 0;
 
+  // Double jump settings (+ conditional emergency triple)
+  const MAX_JUMPS   = 2;
+  const JUMP_V0_1   = -800;  // first jump power
+  const JUMP_V0_2   = -720;  // second jump slightly weaker
+  const HOLD_MAX_1  = 0.18;  // first jump hold cap
+  const HOLD_MAX_2  = 0.12;  // second jump hold cap
+  let jumpsLeft = MAX_JUMPS;
+  let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
 
-// Double jump settings (+ conditional emergency triple)
-const MAX_JUMPS   = 2;
-const JUMP_V0_1   = -800;  // first jump power
-const JUMP_V0_2   = -720;  // second jump slightly weaker
-const HOLD_MAX_1  = 0.18;  // first jump hold cap
-const HOLD_MAX_2  = 0.12;  // second jump hold cap
-let jumpsLeft = MAX_JUMPS;
-let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
-
-// Emergency triple jump tuning (earlier & easier)
-const EMERGENCY_LAND_WINDOW = 125; // trigger farther from the ground
-const EMERGENCY_PROXIMITY   = 100;  // larger triple-jump activation bubble
-const EMERGENCY_V0          = -720; // third jump power (tune feel)
-const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
-const EMERGENCY_GRACE       = 0.18; // seconds you can still trigger after window
-
-
-
+  // Emergency triple jump tuning (earlier & easier)
+  const EMERGENCY_LAND_WINDOW = 125; // trigger farther from the ground
+  const EMERGENCY_PROXIMITY   = 100;  // larger triple-jump activation bubble
+  const EMERGENCY_V0          = -720; // third jump power (tune feel)
+  const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
+  const EMERGENCY_GRACE       = 0.18; // seconds you can still trigger after window
 
   // Runner
   const dog={ x:0, y:0, w:160, h:112, vy:0, onGround:true, frame:0 };
@@ -143,7 +154,7 @@ const EMERGENCY_GRACE       = 0.18; // seconds you can still trigger after windo
 
   // Assets — HARD-CODED SPRITE LAYOUT (4×2, 256×176)
   const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
-let cleanSprite=null, frameW=379.5, frameH=318, cols=4, rows=2, totalFrames=8;
+  let cleanSprite=null, frameW=379.5, frameH=318, cols=4, rows=2, totalFrames=8;
   let frameRect=null; // function(i) => {sx, sy, sw, sh}
 
   rawImg.onload = ()=>{
@@ -165,9 +176,9 @@ let cleanSprite=null, frameW=379.5, frameH=318, cols=4, rows=2, totalFrames=8;
     dog.h = Math.round(dog.w * frameAspect);
   };
 
-// Poo obstacle image
-const foodImg = new Image();
-foodImg.src = 'poo.png';
+  // Poo obstacle image
+  const foodImg = new Image();
+  foodImg.src = 'poo.png';
   let foodReady = false;
   foodImg.onload = () => { foodReady = true; };
 
@@ -183,29 +194,38 @@ foodImg.src = 'poo.png';
     minGap=1.4; maxGap=2.0; spawnTimer=0; nextGap=rand(minGap,maxGap);
     poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.frame=0;
     jumpsLeft = MAX_JUMPS; jumpPhase = 0; jumpHold=false; holdTime=0;
-    show(intro); hide(over); updateHud(); render();
+    hide(over); hide(pausedOverlay); isPaused=false;
+    show(intro); updateHud(); render();
   }
   function start(){
     state='running'; t=0; score=0; spawnTimer=0; nextGap=rand(minGap,maxGap);
     poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.frame=0;
     jumpsLeft = MAX_JUMPS; jumpPhase = 0; jumpHold=false; holdTime=0;
-    hide(intro); hide(over);
+    hide(intro); hide(over); hide(pausedOverlay); isPaused=false;
   }
   function gameOver(){
-    state='over'; if(score>best){ best=score; localStorage.setItem('bru_best',best); }
+    state='over';
+    if(score>best){ best=score; localStorage.setItem('bru_best',best); }
     document.getElementById('finalScore').textContent = `Score: ${score} • Best: ${best}`;
+    if (navigator.vibrate) { navigator.vibrate(60); }
     show(over);
   }
 
+  function setPaused(v){
+    isPaused = v;
+    if (isPaused){ show(pausedOverlay); }
+    else { hide(pausedOverlay); }
+  }
+
   function spawnPoo(){
-poops.push({ x: canvas.width + 50, y: groundY + 22, w: 52, h: 42, a: Math.random()*Math.PI*2 });
+    poops.push({ x: canvas.width + 50, y: groundY + 22, w: 52, h: 42, a: Math.random()*Math.PI*2 });
     const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
     if(Math.random() < chance){
       const tight = Math.min(1, t/30);
       const dmin = 54 - 30*tight;
       const dmax = 90 - 42*tight;
       const dx = dmin + Math.random()*(dmax - dmin);
-poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.random()*Math.PI*2 });
+      poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.random()*Math.PI*2 });
     }
   }
 
@@ -218,88 +238,86 @@ poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.r
     jumpHold = true;
     holdTime = 0;
   }
-function canEmergencyTriple(){
-  // Must have already used the double jump, be airborne
-  if (jumpPhase !== 2 || dog.onGround) return false;
+  function canEmergencyTriple(){
+    // Must have already used the double jump, be airborne
+    if (jumpPhase !== 2 || dog.onGround) return false;
 
-  // Earlier eligibility near apex: allow while still rising a bit
-  if (dog.vy < -120) return false; // was -40
+    // Earlier eligibility near apex: allow while still rising a bit
+    if (dog.vy < -120) return false; // was -40
 
-  // Last‑chance: close-ish to ground (but we’ve loosened it via constants)
-  const distToGround = groundY - (dog.y + dog.h/2);
-  if (distToGround > EMERGENCY_LAND_WINDOW) {
-    // Window not live — but if we recently had it, allow during grace
+    // Last‑chance: close-ish to ground (but we’ve loosened it via constants)
+    const distToGround = groundY - (dog.y + dog.h/2);
+    if (distToGround > EMERGENCY_LAND_WINDOW) {
+      // Window not live — but if we recently had it, allow during grace
+      return tripleGrace > 0;
+    }
+
+    // Player bounds
+    const dogLeft   = dog.x - dog.w/2;
+    const dogRight  = dog.x + dog.w/2;
+    const dogTop    = dog.y - dog.h/2;
+    const dogBottom = dog.y + dog.h/2;
+
+    let hitRect = null;
+
+    for (const p of poops){
+      // Poo rect (center x, bottom y)
+      const pooLeft   = p.x - p.w/2;
+      const pooRight  = p.x + p.w/2;
+      const pooTop    = p.y - p.h;
+      const pooBottom = p.y;
+
+      // Expanded “super close” rect
+      const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
+      const exRight  = pooRight  + EMERGENCY_PROXIMITY;
+      const exTop    = pooTop    - EMERGENCY_PROXIMITY;
+      const exBottom = pooBottom + EMERGENCY_PROXIMITY;
+
+      // Overlap check
+      const overlaps =
+        dogRight  >= exLeft  &&
+        dogLeft   <= exRight &&
+        dogBottom >= exTop   &&
+        dogTop    <= exBottom;
+      if (!overlaps) continue;
+
+      // Record debug rect + arm grace
+      hitRect = { l: exLeft, t: exTop, r: exRight, b: exBottom };
+      tripleGrace = EMERGENCY_GRACE; // give a few frames to press
+      break;
+    }
+
+    if (hitRect){
+      if (debugSlices){
+        tripleFlash.show = 0.08; // ~5 frames
+        tripleFlash.rect = hitRect;
+      }
+      return true;
+    }
+
+    // If we just left the window, allow during grace
     return tripleGrace > 0;
   }
 
-  // Player bounds
-  const dogLeft   = dog.x - dog.w/2;
-  const dogRight  = dog.x + dog.w/2;
-  const dogTop    = dog.y - dog.h/2;
-  const dogBottom = dog.y + dog.h/2;
+  function doEmergencyTriple(){
+    // Promote to phase 3, give a jump with a slightly smaller hold window
+    jumpPhase = 3;
+    dog.vy = EMERGENCY_V0;
+    dog.onGround = false;
+    jumpHold = true;
+    holdTime = 0;
 
-  let hitRect = null;
-
-  for (const p of poops){
-    // Poo rect (center x, bottom y)
-    const pooLeft   = p.x - p.w/2;
-    const pooRight  = p.x + p.w/2;
-    const pooTop    = p.y - p.h;
-    const pooBottom = p.y;
-
-    // Expanded “super close” rect
-    const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
-    const exRight  = pooRight  + EMERGENCY_PROXIMITY;
-    const exTop    = pooTop    - EMERGENCY_PROXIMITY;
-    const exBottom = pooBottom + EMERGENCY_PROXIMITY;
-
-    // Overlap check
-    const overlaps =
-      dogRight  >= exLeft  &&
-      dogLeft   <= exRight &&
-      dogBottom >= exTop   &&
-      dogTop    <= exBottom;
-    if (!overlaps) continue;
-
-
-
-    // Record debug rect + arm grace
-    hitRect = { l: exLeft, t: exTop, r: exRight, b: exBottom };
-    tripleGrace = EMERGENCY_GRACE; // give a few frames to press
-    break;
+    // Temporarily override the hold window just for this jump
+    // We'll swap it back in update() by keying off jumpPhase===3
   }
-
-  if (hitRect){
-    if (debugSlices){
-      tripleFlash.show = 0.08; // ~5 frames
-      tripleFlash.rect = hitRect;
-    }
-    return true;
-  }
-
-  // If we just left the window, allow during grace
-  return tripleGrace > 0;
-}
-
-
-function doEmergencyTriple(){
-  // Promote to phase 3, give a jump with a slightly smaller hold window
-  jumpPhase = 3;
-  dog.vy = EMERGENCY_V0;
-  dog.onGround = false;
-  jumpHold = true;
-  holdTime = 0;
-
-  // Temporarily override the hold window just for this jump
-  // We'll swap it back in update() by keying off jumpPhase===3
-}
-
 
   // Update
   function update(dt){
     if(state!=='running') return;
-t+=dt;
-if (tripleGrace > 0) tripleGrace -= dt;
+    t+=dt;
+    if (tripleGrace > 0) tripleGrace -= dt;
+    if (coyoteTimer > 0) coyoteTimer -= dt;
+    if (jumpBufferTimer > 0) jumpBufferTimer -= dt;
 
     // Parallax motion
     for (let c of clouds){ c.x -= (520 + t*34)*0.10*dt; if(c.x<-220){ c.x+=canvas.width+480; c.y=40+Math.random()*160; } }
@@ -316,31 +334,57 @@ if (tripleGrace > 0) tripleGrace -= dt;
 
     // Physics
     dog.vy += G*dt;
-const holdCap = (jumpPhase === 1) ? HOLD_MAX_1
-               : (jumpPhase === 2) ? HOLD_MAX_2
-               : EMERGENCY_HOLD_MAX; // jumpPhase === 3
+    const holdCap = (jumpPhase === 1) ? HOLD_MAX_1
+                 : (jumpPhase === 2) ? HOLD_MAX_2
+                 : EMERGENCY_HOLD_MAX; // jumpPhase === 3
     if(jumpHold && !dog.onGround && holdTime < holdCap && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
     dog.y += dog.vy*dt;
 
-if(dog.y + dog.h/2 >= groundY){
-  dog.y = groundY - dog.h/2 + 6; // lowered 6px
-  dog.vy = 0;
-  if(!dog.onGround){ jumpsLeft = MAX_JUMPS; jumpPhase = 0; }
-  dog.onGround = true;
-  holdTime = 0;
-  tripleGrace = 0;              // <- clear grace on landing
-  tripleFlash.show = 0;         // <- clear any debug flash
-}
+    if(dog.y + dog.h/2 >= groundY){
+      dog.y = groundY - dog.h/2 + 6; // lowered 6px
+      dog.vy = 0;
+      const wasAir = !dog.onGround;
+      if(wasAir){ jumpsLeft = MAX_JUMPS; jumpPhase = 0; }
+      dog.onGround = true;
+      holdTime = 0;
+      tripleGrace = 0;
+      tripleFlash.show = 0;
+
+      // If a jump was buffered just before landing, auto-fire it
+      if (wasAir && jumpBufferTimer > 0){
+        jumpBufferTimer = 0;
+        setTimeout(()=>{ press(); }, 0);
+      }
+    } else {
+      // Just left ground? start coyote timer
+      if (dog.onGround){
+        dog.onGround = false;
+        coyoteTimer = COYOTE_TIME;
+      }
+    }
 
     // Move obstacles
     for(const p of poops){ p.x -= speed*dt; p.a += dt*1.8; }
     poops = poops.filter(p => p.x + p.w > 0);
 
-    // Collisions
-    const dx = dog.x - dog.w/2, dy = dog.y - dog.h/2;
+    // Collisions (forgiving)
+    const insetDog   = 0.14; // 14% shrink
+    const insetPoo   = 0.12;
+
+    const dogL = dog.x - dog.w*0.5 + dog.w*insetDog;
+    const dogR = dog.x + dog.w*0.5 - dog.w*insetDog;
+    const dogT = dog.y - dog.h*0.5 + dog.h*insetDog;
+    const dogB = dog.y + dog.h*0.5 - dog.h*insetDog;
+
     for(const p of poops){
-      const px=p.x, pw=p.w, pyTop=p.y - p.h;
-      if(dx < px + pw && dx + dog.w > px && dy < p.y && dy + dog.h > pyTop){ return gameOver(); }
+      const pooL = p.x - p.w*0.5 + p.w*insetPoo;
+      const pooR = p.x + p.w*0.5 - p.w*insetPoo;
+      const pooT = p.y - p.h       + p.h*insetPoo;
+      const pooB = p.y             - p.h*insetPoo;
+
+      if (dogL < pooR && dogR > pooL && dogT < pooB && dogB > pooT){
+        return gameOver();
+      }
     }
 
     // Score
@@ -380,7 +424,8 @@ if(dog.y + dog.h/2 >= groundY){
     const shade= getComputedStyle(document.documentElement).getPropertyValue('--groundShade').trim()||'#c9b99a';
     const grd = ctx.createLinearGradient(0,  groundY, 0, canvas.height);
     grd.addColorStop(0, shade); grd.addColorStop(1, base);
-    ctx.fillStyle=grd; ctx.fillRect(0, groundY, canvas.width, canvas.height-groundY);
+ ctx.fillStyle=grd; ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+
 
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--grass').trim()||'#8fbe63';
     ctx.fillRect(0, groundY-8, canvas.width, 8);
@@ -389,56 +434,53 @@ if(dog.y + dog.h/2 >= groundY){
     const step=28, off=(t*140)%step;
     for(let x=-step;x<canvas.width+step;x+=step) ctx.fillRect(Math.floor(x-off), groundY+10, 14, 6);
 
-const seed = Math.floor(t*2);
-const shrubSpacing = 120;
-const shrubCount = Math.ceil((canvas.width + shrubSpacing) / shrubSpacing) + 1;
+    const seed = Math.floor(t*2);
+    const shrubSpacing = 120;
+    const shrubCount = Math.ceil((canvas.width + shrubSpacing) / shrubSpacing) + 1;
 
-const phase = (seed * 53) % shrubSpacing;
-const drift = (t * 60) % shrubSpacing;
+    const phase = (seed * 53) % shrubSpacing;
+    const drift = (t * 60) % shrubSpacing;
 
-// tiny deterministic "random"
-const rand = (n) => {
-  const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
-  return s - Math.floor(s);
-};
+    // tiny deterministic "random"
+    const rand = (n) => {
+      const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    };
 
-for (let i = 0; i < shrubCount; i++) {
-  const gx = (i * shrubSpacing + phase + drift) % (canvas.width + shrubSpacing) - shrubSpacing / 2;
-  const gy = groundY - 8;
+    for (let i = 0; i < shrubCount; i++) {
+      const gx = (i * shrubSpacing + phase + drift) % (canvas.width + shrubSpacing) - shrubSpacing / 2;
+      const gy = groundY - 8;
 
-  // stable per-shrub variation while it’s on screen
-  const worldIndex = i + Math.floor((phase + drift) / shrubSpacing);
+      // stable per-shrub variation while it’s on screen
+      const worldIndex = i + Math.floor((phase + drift) / shrubSpacing);
 
-const hScale = 0.60 + rand(worldIndex) * 1.00;        // 0.60–1.60 (much wider)
-const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.60; // bigger lean
+      const hScale = 0.60 + rand(worldIndex) * 1.00;        // 0.60–1.60 (much wider)
+      const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.60; // bigger lean
 
+      ctx.save();
+      ctx.translate(gx, gy);
+      ctx.rotate(tilt);
 
-  ctx.save();
-  ctx.translate(gx, gy);
-  ctx.rotate(tilt);
+      ctx.strokeStyle = '#2f6d1f';
+      ctx.lineWidth = 2 * dpr;
 
-  ctx.strokeStyle = '#2f6d1f';
-  ctx.lineWidth = 2 * dpr;
+      const blade1 = 10 * hScale;
+      const blade2 = 12 * hScale;
 
-  const blade1 = 10 * hScale;
-  const blade2 = 12 * hScale;
+      // left blade
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(6 * hScale, -blade1, 2 * hScale, -2 * hScale);
 
-  // left blade
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.quadraticCurveTo(6 * hScale, -blade1, 2 * hScale, -2 * hScale);
+      // right blade
+      ctx.moveTo(10 * hScale, 0);
+      ctx.quadraticCurveTo(16 * hScale, -blade2, 12 * hScale, -2 * hScale);
+      ctx.stroke();
 
-  // right blade
-  ctx.moveTo(10 * hScale, 0);
-  ctx.quadraticCurveTo(16 * hScale, -blade2, 12 * hScale, -2 * hScale);
-  ctx.stroke();
+      // no flowers on shrubs
 
-  // no flowers on shrubs
-
-  ctx.restore();
-}
-
-
+      ctx.restore();
+    }
   }
   function drawPoo(p){
     ctx.save();
@@ -456,7 +498,7 @@ const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.60; // bigger lean
       const targetH = targetW * aspect;
       const wobble = Math.sin(p.a * 0.8) * 0.08;
       ctx.rotate(wobble);
-const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
+      const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
       ctx.drawImage(foodImg, -targetW/2, yOffset, targetW, targetH);
     } else {
       ctx.fillStyle = '#888';
@@ -477,79 +519,75 @@ const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
   }
 
   // Debug overlay (toggle with D)
-function drawDebug(){
-  if (!cleanSprite) return;
-  ctx.save();
+  function drawDebug(){
+    if (!cleanSprite) return;
+    ctx.save();
 
-  // Banner
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(8, 8, 290, 26);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = '#fff';
-  ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-  ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
+    // Banner
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(8, 8, 290, 26);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
 
-  // Dog bounds
-  ctx.strokeStyle = 'red';
-  ctx.lineWidth = 2*dpr;
-  ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
+    // Dog bounds
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 2*dpr;
+    ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
 
-  // Sprite sheet mini preview with grid + current frame (4×2, 384×512)
-  const padX = 10, padY = 42;
-  const sheetW = Math.min(260, canvas.width * 0.32);
-  const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
-  const sheetH = cleanSprite.height * scale; // 352 high
-  ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
+    // Sprite sheet mini preview with grid + current frame (4×2, 384×512)
+    const padX = 10, padY = 42;
+    const sheetW = Math.min(260, canvas.width * 0.32);
+    const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
+    const sheetH = cleanSprite.height * scale; // 352 high
+    ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
 
-  // Grid lines
-  ctx.strokeStyle = 'rgba(255,0,0,0.75)';
-  ctx.lineWidth = 1*dpr;
-  for (let c = 1; c < cols; c++){
-    const x = padX + Math.round((c * frameW) * scale);
-    ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,0,0,0.75)';
+    ctx.lineWidth = 1*dpr;
+    for (let c = 1; c < cols; c++){
+      const x = padX + Math.round((c * frameW) * scale);
+      ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
+    }
+    for (let r = 1; r < rows; r++){
+      const y = padY + Math.round((r * frameH) * scale);
+      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
+    }
+
+    // Highlight current frame
+    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
+    const sx = (frameIndex % cols) * frameW;
+    const sy = Math.floor(frameIndex / cols) * frameH;
+    ctx.strokeStyle = 'yellow';
+    ctx.lineWidth = 2*dpr;
+    ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
+
+    // Blue circle: static triple-jump proximity bubble around every poo
+    for (const p of poops){
+      const cx = p.x;
+      const cy = p.y - p.h/2;
+      const R  = EMERGENCY_PROXIMITY;
+
+      ctx.save();
+      ctx.lineWidth = 3 * dpr;
+      ctx.strokeStyle = '#1e88ff';
+      ctx.globalAlpha = 0.95;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.10; // lighter fill since it's always visible
+      ctx.fillStyle = '#1e88ff';
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
-  for (let r = 1; r < rows; r++){
-    const y = padY + Math.round((r * frameH) * scale);
-    ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
-  }
-
-  // Highlight current frame
-  const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-  const sx = (frameIndex % cols) * frameW;
-  const sy = Math.floor(frameIndex / cols) * frameH;
-  ctx.strokeStyle = 'yellow';
-  ctx.lineWidth = 2*dpr;
-  ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
-
-
-// Blue circle: static triple-jump proximity bubble around every poo
-for (const p of poops){
-  const cx = p.x;
-  const cy = p.y - p.h/2;
-  const R  = EMERGENCY_PROXIMITY;
-
-  ctx.save();
-  ctx.lineWidth = 3 * dpr;
-  ctx.strokeStyle = '#1e88ff';
-  ctx.globalAlpha = 0.95;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.globalAlpha = 0.10; // lighter fill since it's always visible
-  ctx.fillStyle = '#1e88ff';
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-
-
-  ctx.restore();
-}
-
 
   function render(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -557,55 +595,80 @@ for (const p of poops){
     for(const p of poops) drawPoo(p);
     drawDog();
     updateHud();
-if (debugSlices) drawDebug();
-
+    if (debugSlices) drawDebug();
   }
   function updateHud(){ scoreHud.textContent = `Score 🦴: ${score} • Best: ${best}`; }
 
   function loop(ts){
     const now = ts/1000; if(!loop.last) loop.last = now;
     const dt = Math.max(0, Math.min(now - loop.last, 1/20)); loop.last = now;
-    if(state==='running'){ update(dt); }
+    if(state==='running' && !isPaused){ update(dt); }
     render(); requestAnimationFrame(loop);
   }
 
   // Input
- function press(){
-  if(state==='intro'){ start(); return; }
-  if(state==='over'){ reset(); return; }
+  function press(){
+    if(state==='intro'){ start(); return; }
+    if(state==='over'){ reset(); return; }
+    if(state!=='running'){ return; }
 
-  if(state==='running'){
-    if(dog.onGround){ jumpsLeft = MAX_JUMPS; }
+    // Resume from pause with any press
+    if (isPaused){ setPaused(false); return; }
 
-    if(dog.onGround || jumpsLeft > 0){
-      // Normal single/double jump path
+    // If within buffer window while airborne, remember this press
+    if (!dog.onGround){
+      jumpBufferTimer = JUMP_BUFFER;
+    }
+
+    // Ground or coyote → normal jump route
+    const canGroundJump = dog.onGround || coyoteTimer > 0;
+    if(canGroundJump){
+      // reset air state for consistent double-jump after coyote
+      dog.onGround = true; coyoteTimer = 0;
+      jumpsLeft = MAX_JUMPS;
+    }
+
+    if(canGroundJump || jumpsLeft > 0){
       doJump();
       if(!dog.onGround){ jumpsLeft--; } else { jumpsLeft = MAX_JUMPS - 1; }
       return;
     }
 
-    // No jumps left? Check emergency triple condition.
+    // No jumps left? try emergency triple
     if (canEmergencyTriple()){
       doEmergencyTriple();
       return;
     }
   }
-}
 
   function release(){ jumpHold=false; }
   startBtn.addEventListener('click', start);
   restartBtn.addEventListener('click', reset);
   jumpBtn.addEventListener('click', press);
-  debugBtn.addEventListener('click', ()=>{ debugSlices = !debugSlices; console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF'); });
+  debugBtn.addEventListener('click', ()=>{
+    debugSlices = !debugSlices;
+    localStorage.setItem('bru_debug', debugSlices ? '1' : '0');
+    console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
+  });
   canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); }, {passive:false});
   canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
 
+  // Keyboard: Space to jump, P to pause/resume
   window.addEventListener('keydown', e=>{
-    if(e.code==='Space'){ e.preventDefault(); press(); }
+    const k = (e.code || e.key || '').toLowerCase();
+    if(k==='space'){ e.preventDefault(); press(); return; }
+    if(k==='keyp' || k==='p'){
+      if(state==='running'){
+        setPaused(!isPaused);
+        e.preventDefault();
+      }
+    }
   }, {passive:false});
-  window.addEventListener('keyup',   e=>{
-    if(e.code==='Space'){ e.preventDefault(); release(); }
-  }, {passive:false});
+window.addEventListener('keyup', e=>{
+  const k = (e.code || e.key || '').toLowerCase();
+  if(k === 'space'){ e.preventDefault(); release(); }
+}, {passive:false});
+
 
   // Robust D toggle: single listener + no repeats
   let dPressed = false;
@@ -616,6 +679,7 @@ if (debugSlices) drawDebug();
       e.preventDefault();
       dPressed = true;
       debugSlices = !debugSlices;
+      localStorage.setItem('bru_debug', debugSlices ? '1' : '0');
       console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
     }
   }
@@ -624,6 +688,14 @@ if (debugSlices) drawDebug();
     const k = (e.code || e.key || '').toLowerCase();
     if (k === 'keyd' || k === 'd') dPressed = false;
   }, { capture: true });
+
+  // Auto-pause on tab switch, tap to resume
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.hidden && state==='running') setPaused(true);
+  });
+  canvas.addEventListener('pointerdown', ()=>{
+    if (state==='running' && isPaused) setPaused(false);
+  }, {passive:true});
 
   // Boot
   reset(); requestAnimationFrame(loop);
