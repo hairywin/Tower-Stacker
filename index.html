@@ -105,9 +105,30 @@
   let jumpHold=false, holdTime=0, speed=500;
   let poops=[];
   let debugSlices = false;
-window.addEventListener('keydown', e => {
-  if (e.key.toLowerCase() === 'd') debugSlices = !debugSlices;
-});
+
+// Make the canvas keyboard-focusable so keys work reliably
+canvas.tabIndex = 0;
+canvas.style.outline = 'none';
+
+// Helper to toggle + log
+function toggleDebug(on){
+  debugSlices = (on === undefined) ? !debugSlices : !!on;
+  console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
+}
+
+// Key handler that works even if another element has focus
+function debugKeyHandler(e){
+  const k = (e.code || e.key || '').toLowerCase(); // supports 'KeyD' and 'd'
+  if (k === 'keyd' || k === 'd'){
+    e.preventDefault();
+    toggleDebug();
+  }
+}
+
+// Listen at both window and document, capture phase to intercept early
+window.addEventListener('keydown', debugKeyHandler, { capture: true });
+document.addEventListener('keydown', debugKeyHandler, { capture: true });
+
 
   // Double jump settings
   const MAX_JUMPS   = 2;
