@@ -150,9 +150,9 @@ let cleanSprite=null, frameW=379.5, frameH=318, cols=4, rows=2, totalFrames=8;
     dog.h = Math.round(dog.w * frameAspect);
   };
 
-  // Maeve bag image
-  const foodImg = new Image();
-  foodImg.src = 'maeve.png';
+// Poo obstacle image
+const foodImg = new Image();
+foodImg.src = 'poo.png';
   let foodReady = false;
   foodImg.onload = () => { foodReady = true; };
 
