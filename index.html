@@ -110,14 +110,22 @@ function currentZoom(){
   let poops=[];
   let debugSlices = false;
 
-  // Double jump settings
-  const MAX_JUMPS   = 2;
-  const JUMP_V0_1   = -800;  // first jump power
-  const JUMP_V0_2   = -720;  // second jump slightly weaker
-  const HOLD_MAX_1  = 0.18;  // first jump hold cap
-  const HOLD_MAX_2  = 0.12;  // second jump hold cap
-  let jumpsLeft = MAX_JUMPS;
-  let jumpPhase = 0; // 0=none, 1=first, 2=second
+// Double jump settings (+ conditional emergency triple)
+const MAX_JUMPS   = 2;
+const JUMP_V0_1   = -800;  // first jump power
+const JUMP_V0_2   = -720;  // second jump slightly weaker
+const HOLD_MAX_1  = 0.18;  // first jump hold cap
+const HOLD_MAX_2  = 0.12;  // second jump hold cap
+let jumpsLeft = MAX_JUMPS;
+let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
+
+// Emergency triple jump tuning
+const EMERGENCY_LAND_WINDOW = 44; // px above ground counts as "landing soon"
+const EMERGENCY_AHEAD_MIN   = -8; // allow if poop is already slightly overlapping
+const EMERGENCY_AHEAD_MAX   = 70; // px ahead of dog's front where danger triggers
+const EMERGENCY_V0          = -700; // power for the third jump (a hair weaker than jump 2)
+const EMERGENCY_HOLD_MAX    = 0.10; // optional mini hold for the third jump
+
 
   // Runner
   const dog={ x:0, y:0, w:160, h:112, vy:0, onGround:true, frame:0 };
@@ -204,6 +212,45 @@ poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.r
     jumpHold = true;
     holdTime = 0;
   }
+  function canEmergencyTriple(){
+  // Only after you've used the second jump, while descending, and near landing
+  if (jumpPhase !== 2 || dog.onGround) return false;
+  if (dog.vy <= 0) return false; // must be falling
+
+  // "landing soon" window
+  const distToGround = groundY - (dog.y + dog.h/2);
+  if (distToGround > EMERGENCY_LAND_WINDOW) return false;
+
+  // Check for a poop dangerously close in front of the dog
+  const dogLeft  = dog.x - dog.w/2;
+  const dogRight = dogLeft + dog.w;
+
+  let danger = false;
+  for (const p of poops){
+    const gap = p.x - dogRight; // distance from dog's front to poop's left
+    if (gap >= EMERGENCY_AHEAD_MIN && gap <= EMERGENCY_AHEAD_MAX){
+      // also make sure vertical overlap will be true once we land
+      const pyTop = p.y - p.h;
+      // If our feet (bottom) will be at groundY and the poop spans into that space, it's a real threat
+      const willOverlapVertically = (groundY > pyTop); // simple but effective in this game
+      if (willOverlapVertically){ danger = true; break; }
+    }
+  }
+  return danger;
+}
+
+function doEmergencyTriple(){
+  // Promote to phase 3, give a jump with a slightly smaller hold window
+  jumpPhase = 3;
+  dog.vy = EMERGENCY_V0;
+  dog.onGround = false;
+  jumpHold = true;
+  holdTime = 0;
+
+  // Temporarily override the hold window just for this jump
+  // We'll swap it back in update() by keying off jumpPhase===3
+}
+
 
   // Update
   function update(dt){
@@ -225,7 +272,9 @@ poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.r
 
     // Physics
     dog.vy += G*dt;
-    const holdCap = (jumpPhase === 1) ? HOLD_MAX_1 : HOLD_MAX_2;
+const holdCap = (jumpPhase === 1) ? HOLD_MAX_1
+               : (jumpPhase === 2) ? HOLD_MAX_2
+               : EMERGENCY_HOLD_MAX; // jumpPhase === 3
     if(jumpHold && !dog.onGround && holdTime < holdCap && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
     dog.y += dog.vy*dt;
 
@@ -447,17 +496,28 @@ const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
   }
 
   // Input
-  function press(){
-    if(state==='intro'){start();return;}
-    if(state==='over'){reset();return;}
-    if(state==='running'){
-      if(dog.onGround){ jumpsLeft = MAX_JUMPS; }
-      if(dog.onGround || jumpsLeft > 0){
-        doJump();
-        if(!dog.onGround){ jumpsLeft--; } else { jumpsLeft = MAX_JUMPS - 1; }
-      }
+ function press(){
+  if(state==='intro'){ start(); return; }
+  if(state==='over'){ reset(); return; }
+
+  if(state==='running'){
+    if(dog.onGround){ jumpsLeft = MAX_JUMPS; }
+
+    if(dog.onGround || jumpsLeft > 0){
+      // Normal single/double jump path
+      doJump();
+      if(!dog.onGround){ jumpsLeft--; } else { jumpsLeft = MAX_JUMPS - 1; }
+      return;
+    }
+
+    // No jumps left? Check emergency triple condition.
+    if (canEmergencyTriple()){
+      doEmergencyTriple();
+      return;
     }
   }
+}
+
   function release(){ jumpHold=false; }
   startBtn.addEventListener('click', start);
   restartBtn.addEventListener('click', reset);
