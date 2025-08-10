@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Brus Gotta Poo! (v1.3 Debug + Tail Fix)</title>
+<title>Brus Gotta Poo! (v1.4 Hard‑coded Frames)</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
@@ -35,7 +35,7 @@
   <div id="intro" class="overlay">
     <div class="card">
       <div class="title">Brus Gotta Poo!</div>
-      <div class="subtitle">Tap to Begin — v1.3</div>
+      <div class="subtitle">Tap to Begin — v1.4</div>
       <button id="startBtn" class="btn">Start</button>
     </div>
   </div>
@@ -51,6 +51,7 @@
   <div id="scoreHud" class="scoreHud">Score 🦴: 0 • Best: 0</div>
   <div class="hud">
     <button id="jumpBtn" class="btn">Jump (Tap/Space)</button>
+    <button id="debugBtn" class="btn" title="Toggle debug (D)">Debug (D)</button>
     <span class="subtitle" style="color:#000;opacity:.75">
       Quick taps = small hops, hold for higher jumps. Double jump enabled. Press <b>D</b> for debug.
     </span>
@@ -59,15 +60,13 @@
 
 <script>
 (()=>{
-  const VERSION = 'v1.3 Debug + Tail Fix';
+  const VERSION = 'v1.4 Hard-coded Frames';
   console.log('Brus Gotta Poo! ' + VERSION);
 
   // Canvas & sizing
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-
-  // Ensure the canvas can get keyboard focus if needed
-  canvas.tabIndex = 0;
+  canvas.tabIndex = 0; // allow keyboard focus
   canvas.style.outline = 'none';
 
   function currentZoom(){
@@ -98,6 +97,7 @@
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const jumpBtn = document.getElementById('jumpBtn');
+  const debugBtn = document.getElementById('debugBtn');
   const scoreHud = document.getElementById('scoreHud');
   const show = el => el.classList.remove('hidden');
   const hide = el => el.classList.add('hidden');
@@ -122,60 +122,30 @@
   const dog={ x:0, y:0, w:160, h:112, vy:0, onGround:true, frame:0 };
   const DOG_X = ()=> canvas.width*0.2;
 
-  // Spawning (existing)
+  // Spawning
   let minGap=1.4, maxGap=2.0, spawnTimer=0, nextGap=rand(minGap,maxGap);
   function rand(a,b){ return a + Math.random()*(b-a); }
 
-  // Assets
+  // Assets — HARD-CODED SPRITE LAYOUT (4×2, 256×176)
   const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
-  let cleanSprite=null, frameW=0, frameH=0, cols=4, rows=2, totalFrames=8;
-  let colEdges=null, rowEdges=null;
+  let cleanSprite=null, frameW=256, frameH=176, cols=4, rows=2, totalFrames=8;
   let frameRect=null; // function(i) => {sx, sy, sw, sh}
 
   rawImg.onload = ()=>{
-    // clean the sheet (chroma key the orange band)
-    const off = document.createElement('canvas'); off.width=rawImg.width; off.height=rawImg.height;
-    const octx=off.getContext('2d'); octx.drawImage(rawImg,0,0);
-    const img=octx.getImageData(0,0,off.width,off.height); const d=img.data;
+    // Use the sprite as-is (transparent padding already baked in)
+    cleanSprite = rawImg;
 
-    for(let i=0;i<d.length;i+=4){
-      const r=d[i], g=d[i+1], b=d[i+2];
-      const max=Math.max(r,g,b), min=Math.min(r,g,b);
-      const v=max/255, s=max===0?0:(max-min)/max;
-      let h=0;
-      if(max!==min){
-        if(max===r) h=(g-b)/(max-min);
-        else if(max===g) h=2+(b-r)/(max-min);
-        else h=4+(r-g)/(max-min);
-        h=(h*60); if(h<0) h+=360;
-      }
-      if(v < 0.22) continue; // keep dark ink lines
-      if(h>18 && h<32 && s>0.35 && s<0.85 && v>0.28 && v<0.70){ d[i+3]=0; }
-    }
-    octx.putImageData(img,0,0);
-    cleanSprite=off;
-
-    // Auto-detect layout
-    const sheetAspect = off.width / off.height;
-    if (sheetAspect >= 1.5){ cols = 4; rows = 2; } else { cols = 2; rows = 4; }
-    totalFrames = cols * rows;
-
-    // Pixel-perfect frame edges (TAIL-SLICE FIX)
-    colEdges = Array.from({length: cols + 1}, (_, i) => Math.round(i * off.width  / cols));
-    rowEdges = Array.from({length: rows + 1}, (_, i) => Math.round(i * off.height / rows));
-
+    // Fixed slicer
     frameRect = function(i){
-      const c = i % cols, r = Math.floor(i / cols);
-      const sx = colEdges[c],   sy = rowEdges[r];
-      const sw = colEdges[c+1] - colEdges[c];
-      const sh = rowEdges[r+1] - rowEdges[r];
-      return { sx, sy, sw, sh };
+      const c = i % cols;
+      const r = Math.floor(i / cols);
+      const sx = c * frameW;
+      const sy = r * frameH;
+      return { sx, sy, sw: frameW, sh: frameH };
     };
 
-    // Size dog based on one frame's aspect
-    frameW = colEdges[1] - colEdges[0];
-    frameH = rowEdges[1] - rowEdges[0];
-    const frameAspect = frameH / frameW;
+    // Size dog based on frame aspect
+    const frameAspect = frameH / frameW; // 176 / 256 = 0.6875
     dog.w = 160;
     dog.h = Math.round(dog.w * frameAspect);
   };
@@ -361,14 +331,8 @@
     const fps = 6; dog.frame = (dog.frame + fps/60) % totalFrames;
     const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
 
-    if (frameRect){
-      const { sx, sy, sw, sh } = frameRect(frameIndex);
-      ctx.drawImage(cleanSprite, sx, sy, sw, sh, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
-    } else {
-      // Fallback (rare): uniform tiles
-      const sx = (frameIndex % cols) * frameW, sy = Math.floor(frameIndex/cols) * frameH;
-      ctx.drawImage(cleanSprite, sx, sy, frameW, frameH, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
-    }
+    const { sx, sy, sw, sh } = frameRect(frameIndex);
+    ctx.drawImage(cleanSprite, sx, sy, sw, sh, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
     ctx.restore();
   }
 
@@ -380,7 +344,7 @@
     // Banner
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(8, 8, 250, 26);
+    ctx.fillRect(8, 8, 290, 26);
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
     ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
@@ -391,34 +355,32 @@
     ctx.lineWidth = 2*dpr;
     ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
 
-    // Sprite sheet mini preview with grid + current frame
+    // Sprite sheet mini preview with grid + current frame (fixed 4×2, 256×176)
     const padX = 10, padY = 42;
     const sheetW = Math.min(260, canvas.width * 0.32);
-    const scale  = sheetW / cleanSprite.width;
-    const sheetH = cleanSprite.height * scale;
+    const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
+    const sheetH = cleanSprite.height * scale; // 352 high
     ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
 
-    // Grid lines (use detected cols/rows)
+    // Grid lines
     ctx.strokeStyle = 'rgba(255,0,0,0.75)';
     ctx.lineWidth = 1*dpr;
     for (let c = 1; c < cols; c++){
-      const x = padX + Math.round((c * cleanSprite.width / cols) * scale);
+      const x = padX + Math.round((c * frameW) * scale);
       ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
     }
     for (let r = 1; r < rows; r++){
-      const y = padY + Math.round((r * cleanSprite.height / rows) * scale);
+      const y = padY + Math.round((r * frameH) * scale);
       ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
     }
 
     // Highlight current frame
     const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-    const sx = (frameIndex % cols) * (cleanSprite.width / cols);
-    const sy = Math.floor(frameIndex / cols) * (cleanSprite.height / rows);
-    const sw = cleanSprite.width / cols;
-    const sh = cleanSprite.height / rows;
+    const sx = (frameIndex % cols) * frameW;
+    const sy = Math.floor(frameIndex / cols) * frameH;
     ctx.strokeStyle = 'yellow';
     ctx.lineWidth = 2*dpr;
-    ctx.strokeRect(padX + sx * scale, padY + sy * scale, sw * scale, sh * scale);
+    ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
 
     ctx.restore();
   }
@@ -429,7 +391,7 @@
     for(const p of poops) drawPoo(p);
     drawDog();
     updateHud();
-    if (debugSlices) drawDebug(); // ensure overlay actually renders
+    if (debugSlices) drawDebug();
   }
   function updateHud(){ scoreHud.textContent = `Score 🦴: ${score} • Best: ${best}`; }
 
@@ -456,21 +418,34 @@
   startBtn.addEventListener('click', start);
   restartBtn.addEventListener('click', reset);
   jumpBtn.addEventListener('click', press);
+  debugBtn.addEventListener('click', ()=>{ debugSlices = !debugSlices; console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF'); });
   canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); }, {passive:false});
   canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
-  window.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); }}, {passive:false});
-  window.addEventListener('keyup',   e=>{ if(e.code==='Space'){ e.preventDefault(); release(); }}, {passive:false});
 
-  // Robust D toggle: works no matter what has focus
+  window.addEventListener('keydown', e=>{
+    if(e.code==='Space'){ e.preventDefault(); press(); }
+  }, {passive:false});
+  window.addEventListener('keyup',   e=>{
+    if(e.code==='Space'){ e.preventDefault(); release(); }
+  }, {passive:false});
+
+  // Robust D toggle: single listener + no repeats
+  let dPressed = false;
   function debugKeyHandler(e){
     const k = (e.code || e.key || '').toLowerCase();
     if (k === 'keyd' || k === 'd'){
+      if (e.repeat || dPressed) return; // prevent double toggle
       e.preventDefault();
+      dPressed = true;
       debugSlices = !debugSlices;
       console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
     }
   }
   window.addEventListener('keydown', debugKeyHandler, { capture: true });
+  window.addEventListener('keyup', (e)=>{
+    const k = (e.code || e.key || '').toLowerCase();
+    if (k === 'keyd' || k === 'd') dPressed = false;
+  }, { capture: true });
 
   // Boot
   reset(); requestAnimationFrame(loop);
