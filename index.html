@@ -1,704 +1,312 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Brus Gotta Poo! (v1.4 Hard‑coded Frames)</title>
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Tower Stacker</title>
 <style>
-  :root {
-    --skyTop:#bfe4ff; --skyMid:#d9efff; --skyBot:#fdeedb;
-    --sun:#fff7b2;
-    --hillBack:#c8d4e7; --hillFront:#b6c9e3;
-    --groundBase:#dfd3b9; --groundShade:#c9b99a; --grass:#8fbe63; --path:#b49a77;
-  }
-  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body{height:100%;margin:0;background:var(--skyBot);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-  .wrap{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto}
-  canvas{width:100%;height:100%;display:block;touch-action:manipulation;background:linear-gradient(var(--skyTop),var(--skyMid) 55%, var(--skyBot))}
-  .hud{display:flex;gap:10px;align-items:center;justify-content:center;padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left);background:linear-gradient(180deg,#0000,#0001)}
-  .btn{border:0;border-radius:12px;padding:10px 14px;background:var(--accent,#ffd54f);font-weight:800;color:#3a300e}
-  .btn:active{transform:translateY(1px) scale(.99)}
-  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
-  .card{background:var(--card,#263238ee);color:var(--text,#fff);padding:22px 28px;border-radius:18px;box-shadow:0 14px 40px #0006;text-align:center;max-width:min(560px,86vw)}
-  .title{font-size:28px;font-weight:900;margin:0 0 6px 0}
-  .subtitle{font-size:18px;opacity:.95;margin:0 0 12px 0}
-  .hidden{display:none!important}
-  .scoreHud{position:fixed;left:12px;top:8px;background:rgba(0,0,0,.25);color:#fff;padding:10px 12px;border-radius:12px;font-weight:700;z-index:20}
+  :root{--bg2:#111827;--ink:#e5e7eb;--muted:#9ca3af;--btn:#1f2937;--accent:#38bdf8;}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:radial-gradient(120% 120% at 50% -10%, #1e293b 0%, var(--bg2) 60%, #0b1020 100%); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+  .wrap{position:fixed; inset:0; display:grid; grid-template-rows:auto 1fr}
+  header{display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.6rem .8rem; background:linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.1)); border-bottom:1px solid rgba(255,255,255,.06); backdrop-filter:blur(6px)}
+  .left{display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap}
+  .brand{font-weight:700}
+  .hint{font-size:.85rem; color:var(--muted)}
+  .stats{display:flex; gap:.6rem; align-items:center; flex-wrap:wrap}
+  button{appearance:none; border:1px solid rgba(255,255,255,.12); background:var(--btn); color:var(--ink); padding:.45rem .7rem; border-radius:.6rem; font-weight:600; cursor:pointer}
+  button:active{transform:translateY(1px)}
+  #game{width:100%; height:100%; display:block; background:linear-gradient(180deg, rgba(56,189,248,.08), rgba(56,189,248,0) 30%)}
+  .overlay{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none}
+  .card{pointer-events:auto; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:1rem 1.25rem; text-align:center; backdrop-filter:blur(8px); box-shadow:0 20px 40px rgba(0,0,0,.45)}
+  .title{font-size:1.25rem; font-weight:800; margin:.25rem 0 .5rem}
+  .sub{font-size:.95rem; color:var(--muted); margin-bottom:.9rem}
+  .actions{display:flex; gap:.5rem; justify-content:center}
+  .hidden{display:none}
+  .pill{font-size:.85rem; padding:.15rem .45rem; border-radius:.5rem; background:rgba(56,189,248,.15); border:1px solid rgba(56,189,248,.35)}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <canvas id="game" width="900" height="420" aria-label="Brus Gotta Poo! Endless Runner"></canvas>
+  <div class="wrap">
+    <header>
+      <div class="left">
+        <div class="brand">Tower Stacker</div>
+        <div class="hint">Space/Tap drop · P pause</div>
+      </div>
+      <div class="stats">
+        <span>Score: <b id="score">0</b></span>
+        <span class="pill">Best: <b id="best">0</b></span>
+        <button id="muteBtn" title="Mute (M)">🔊</button>
+        <button id="pauseBtn" title="Pause (P)">Pause</button>
+        <button id="restartBtn" title="Restart (R)">Restart</button>
+      </div>
+    </header>
 
-  <div id="intro" class="overlay">
-    <div class="card">
-      <div class="title">Brus Gotta Poo!</div>
-      <div class="subtitle">Tap to Begin — v1.4</div>
-      <button id="startBtn" class="btn">Start</button>
+    <canvas id="game" aria-label="Tower Stacker game area"></canvas>
+
+    <div id="over" class="overlay hidden" role="dialog" aria-modal="true">
+      <div class="card">
+        <div class="title">Game Over</div>
+        <div class="sub">Height: <span id="finalScore">0</span> · Best: <span id="finalBest">0</span></div>
+        <div class="actions"><button id="playAgain">Play again</button></div>
+      </div>
     </div>
   </div>
-
-  <div id="gameOver" class="overlay hidden">
-    <div class="card">
-      <div class="title">Game Over 💩</div>
-      <div id="finalScore" class="subtitle"></div>
-      <button id="restartBtn" class="btn">Restart</button>
-    </div>
-  </div>
-
-  <!-- NEW: Pause overlay -->
-  <div id="paused" class="overlay hidden">
-    <div class="card">
-      <div class="title">Paused ⏸️</div>
-      <div class="subtitle">Tap or press P to resume</div>
-    </div>
-  </div>
-
-  <div id="scoreHud" class="scoreHud">Score 🦴: 0 • Best: 0</div>
-  <div class="hud">
-    <button id="jumpBtn" class="btn">Jump (Tap/Space)</button>
-    <button id="debugBtn" class="btn" title="Toggle debug (D)">Debug (D)</button>
-    <span class="subtitle" style="color:#000;opacity:.75">
-      Quick taps = small hops, hold for higher jumps. Double jump enabled. Press <b>D</b> for debug.
-    </span>
-  </div>
-</div>
 
 <script>
-(()=>{
-  const VERSION = 'v1.4 Hard-coded Frames';
-  console.log('Brus Gotta Poo! ' + VERSION);
-
-  // Canvas & sizing
+(() => {
+  // Canvas
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  canvas.tabIndex = 0; // allow keyboard focus
-  canvas.style.outline = 'none';
-
-  function currentZoom(){
-    const smallScreen = window.matchMedia('(max-width: 820px)').matches;
-    const portrait = window.matchMedia('(orientation: portrait)').matches;
-    if(!smallScreen) return 1.25; // zoom IN 15% on laptop/desktop
-    return portrait ? 0.92 : 0.96; // unchanged on iPhone/small screens
-  }
-
-  let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
-  let zoom = currentZoom();
-  let groundY = canvas.height * 0.80;
-
+  let CW=0, CH=0, DPR=1;
   function resize(){
-    dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
-    zoom = currentZoom();
-    canvas.width  = Math.floor(window.innerWidth  * dpr / zoom);
-    canvas.height = Math.floor(window.innerHeight * dpr / zoom);
-    groundY = canvas.height * 0.80;
+    DPR=Math.min(window.devicePixelRatio||1,2);
+    CW=window.innerWidth; CH=window.innerHeight-document.querySelector('header').offsetHeight;
+    canvas.width=Math.floor(CW*DPR); canvas.height=Math.floor(CH*DPR);
+    canvas.style.width=CW+'px'; canvas.style.height=CH+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
   }
-  window.addEventListener('resize', resize, {passive:true});
-  window.addEventListener('orientationchange', resize, {passive:true});
-  resize();
+  window.addEventListener('resize', resize, {passive:true}); resize();
 
-  // DOM
-  const intro = document.getElementById('intro');
-  const over  = document.getElementById('gameOver');
-  const pausedOverlay = document.getElementById('paused');
-  const startBtn = document.getElementById('startBtn');
-  const restartBtn = document.getElementById('restartBtn');
-  const jumpBtn = document.getElementById('jumpBtn');
-  const debugBtn = document.getElementById('debugBtn');
-  const scoreHud = document.getElementById('scoreHud');
-  const show = el => el.classList.remove('hidden');
-  const hide = el => el.classList.add('hidden');
+  // UI refs
+  const scoreEl = document.getElementById('score');
+  const bestEl  = document.getElementById('best');
+  const overEl  = document.getElementById('over');
+  const finalScoreEl = document.getElementById('finalScore');
+  const finalBestEl  = document.getElementById('finalBest');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const muteBtn  = document.getElementById('muteBtn');
+  document.getElementById('restartBtn').addEventListener('click', reset);
+  document.getElementById('playAgain').addEventListener('click', reset);
+
+  // Audio
+  let audioCtx=null, muted=false;
+  function ensureAudio(){ if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch{} } }
+  function sfx(freq=440, ms=80, type='square', gain=0.03){
+    if(muted || !audioCtx) return;
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type=type; o.frequency.value=freq; g.gain.value=gain; o.connect(g); g.connect(audioCtx.destination);
+    o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(1e-4, audioCtx.currentTime+0.06); o.stop(audioCtx.currentTime+0.07); }, ms);
+  }
+  muteBtn.addEventListener('click', ()=>{ muted=!muted; muteBtn.textContent=muted?'🔇':'🔊'; });
+
+  // Haptics
+  const buzz = ms => ('vibrate' in navigator) && navigator.vibrate(ms);
+
+  // Tunables
+  const BLOCK_H=22, TOP_MARGIN=120;
+  const PERFECT_EPS=3;
+  const WIDEN_PERFECT=4;
+  const GRAVITY=0.6;
+
+  // Random speed ranges (px/frame @60fps, scaled by dt*60)
+  const H_MIN=2.6, H_MAX=8.8;    // increased max horizontal speed
+  const V_MIN=26,  V_MAX=60;     // increased max drop speed
+  const PULSE_MAX=0.28;
 
   // State
-  let state='intro', t=0, score=0, best=parseInt(localStorage.getItem('bru_best')||'0',10);
-  let isPaused = false;
-  const G = 3000;
-  let jumpHold=false, holdTime=0, speed=500;
-  let poops=[];
-  // Persisted debug toggle
-  let debugSlices = localStorage.getItem('bru_debug') === '1';
-  let tripleFlash = { show: 0, rect: null }; // debug: flash expanded poo rect when triple is available
-  let tripleGrace = 0; // seconds left to still allow triple after window closes
+  let blocks=[], mover=null, camY=0, score=0, best=Number(localStorage.getItem('ts_best')||0);
+  let over=false, paused=false, state='idle', lastTime=0, timeSec=0, streak=0;
+  let shards=[];
+  bestEl.textContent=best;
 
-  // Feel-good jump helpers (coyote time + jump buffer)
-  const COYOTE_TIME = 0.10;   // seconds after leaving ground where jump still allowed
-  const JUMP_BUFFER = 0.12;   // seconds before landing we remember a jump press
-  let coyoteTimer = 0;
-  let jumpBufferTimer = 0;
+  // Helpers
+  const colorAt = n => `hsl(${(n*23)%360} 85% 60%)`;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const rr=(x,y,w,h,r)=>{const t=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);ctx.beginPath();ctx.moveTo(x+t,y);ctx.arcTo(x+w,y,x+w,y+h,t);ctx.arcTo(x+w,y+h,x,y+h,t);ctx.arcTo(x,y+h,x,y,t);ctx.arcTo(x,y,x+w,y,t);ctx.closePath();};
+  const rnd=(a,b)=>a + Math.random()*(b-a);
 
-  // Double jump settings (+ conditional emergency triple)
-  const MAX_JUMPS   = 2;
-  const JUMP_V0_1   = -800;  // first jump power
-  const JUMP_V0_2   = -720;  // second jump slightly weaker
-  const HOLD_MAX_1  = 0.18;  // first jump hold cap
-  const HOLD_MAX_2  = 0.12;  // second jump hold cap
-  let jumpsLeft = MAX_JUMPS;
-  let jumpPhase = 0; // 0=none, 1=first, 2=second, 3=emergency triple
-
-  // Emergency triple jump tuning (earlier & easier)
-  const EMERGENCY_LAND_WINDOW = 125; // trigger farther from the ground
-  const EMERGENCY_PROXIMITY   = 100;  // larger triple-jump activation bubble
-  const EMERGENCY_V0          = -720; // third jump power (tune feel)
-  const EMERGENCY_HOLD_MAX    = 0.10; // brief hold for triple
-  const EMERGENCY_GRACE       = 0.18; // seconds you can still trigger after window
-
-  // Runner
-  const dog={ x:0, y:0, w:160, h:112, vy:0, onGround:true, frame:0 };
-  const DOG_X = ()=> canvas.width*0.2;
-
-  // Spawning
-  let minGap=1.4, maxGap=2.0, spawnTimer=0, nextGap=rand(minGap,maxGap);
-  function rand(a,b){ return a + Math.random()*(b-a); }
-
-  // Assets — HARD-CODED SPRITE LAYOUT (4×2, 256×176)
-  const rawImg = new Image(); rawImg.src = 'bru_sprite.png';
-  let cleanSprite=null, frameW=379.5, frameH=318, cols=4, rows=2, totalFrames=8;
-  let frameRect=null; // function(i) => {sx, sy, sw, sh}
-
-  rawImg.onload = ()=>{
-    // Use the sprite as-is (transparent padding already baked in)
-    cleanSprite = rawImg;
-
-    // Fixed slicer
-    frameRect = function(i){
-      const c = i % cols;
-      const r = Math.floor(i / cols);
-      const sx = c * frameW;
-      const sy = r * frameH;
-      return { sx, sy, sw: frameW, sh: frameH };
-    };
-
-    // Size dog based on frame aspect
-    const frameAspect = frameH / frameW; // 176 / 256 = 0.6875
-    dog.w = 160;
-    dog.h = Math.round(dog.w * frameAspect);
-  };
-
-  // Poo obstacle image
-  const foodImg = new Image();
-  foodImg.src = 'poo.png';
-  let foodReady = false;
-  foodImg.onload = () => { foodReady = true; };
-
-  // Parallax sky elements
-  const sun = { x: () => canvas.width*0.82, y: () => canvas.height*0.18, r: 36*dpr };
-  const clouds = new Array(7).fill(0).map((_,i)=>({x: i*420 + Math.random()*240, y: 60+Math.random()*120, r: 20+Math.random()*26 }));
-  const hillsBack = new Array(6).fill(0).map((_,i)=>({x:i*520, h: 140+Math.random()*60}));
-  const hillsFront= new Array(6).fill(0).map((_,i)=>({x:i*420, h: 90+Math.random()*40}));
-
-  // Flow
+  // Spawn/reset
   function reset(){
-    state='intro'; t=0; score=0; speed=500;
-    minGap=1.4; maxGap=2.0; spawnTimer=0; nextGap=rand(minGap,maxGap);
-    poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.frame=0;
-    jumpsLeft = MAX_JUMPS; jumpPhase = 0; jumpHold=false; holdTime=0;
-    hide(over); hide(pausedOverlay); isPaused=false;
-    show(intro); updateHud(); render();
-  }
-  function start(){
-    state='running'; t=0; score=0; spawnTimer=0; nextGap=rand(minGap,maxGap);
-    poops=[]; dog.x=DOG_X(); dog.y=groundY-dog.h/2; dog.vy=0; dog.onGround=true; dog.frame=0;
-    jumpsLeft = MAX_JUMPS; jumpPhase = 0; jumpHold=false; holdTime=0;
-    hide(intro); hide(over); hide(pausedOverlay); isPaused=false;
-  }
-  function gameOver(){
-    state='over';
-    if(score>best){ best=score; localStorage.setItem('bru_best',best); }
-    document.getElementById('finalScore').textContent = `Score: ${score} • Best: ${best}`;
-    if (navigator.vibrate) { navigator.vibrate(60); }
-    show(over);
+    over=false; paused=false; state='moving'; camY=0; score=0; streak=0; shards.length=0;
+    scoreEl.textContent='0'; overEl.classList.add('hidden'); pauseBtn.textContent='Pause';
+    blocks=[];
+    const baseW=Math.max(140,Math.min(300,Math.floor(CW*0.6)));
+    const baseX=(CW-baseW)/2, baseY=CH-BLOCK_H-8;
+    blocks.push({x:baseX,y:baseY,w:baseW});
+    spawnMover(baseW, baseY-BLOCK_H);
+    lastTime=0; timeSec=0;
   }
 
-  function setPaused(v){
-    isPaused = v;
-    if (isPaused){ show(pausedOverlay); }
-    else { hide(pausedOverlay); }
-  }
-
-  function spawnPoo(){
-    poops.push({ x: canvas.width + 50, y: groundY + 22, w: 52, h: 42, a: Math.random()*Math.PI*2 });
-    const chance = Math.min(0.60, 0.35 + Math.min(0.25, t*0.0083) + Math.min(0.15, t*0.01));
-    if(Math.random() < chance){
-      const tight = Math.min(1, t/30);
-      const dmin = 54 - 30*tight;
-      const dmax = 90 - 42*tight;
-      const dx = dmin + Math.random()*(dmax - dmin);
-      poops.push({ x: canvas.width + 50 + dx, y: groundY + 22, w: 48, h: 38, a: Math.random()*Math.PI*2 });
-    }
-  }
-
-  // Double jump helpers
-  function doJump(){
-    jumpPhase = dog.onGround ? 1 : Math.min(2, jumpPhase + 1);
-    const v0 = (jumpPhase === 1) ? JUMP_V0_1 : JUMP_V0_2;
-    dog.vy = v0;
-    dog.onGround = false;
-    jumpHold = true;
-    holdTime = 0;
-  }
-  function canEmergencyTriple(){
-    // Must have already used the double jump, be airborne
-    if (jumpPhase !== 2 || dog.onGround) return false;
-
-    // Earlier eligibility near apex: allow while still rising a bit
-    if (dog.vy < -120) return false; // was -40
-
-    // Last‑chance: close-ish to ground (but we’ve loosened it via constants)
-    const distToGround = groundY - (dog.y + dog.h/2);
-    if (distToGround > EMERGENCY_LAND_WINDOW) {
-      // Window not live — but if we recently had it, allow during grace
-      return tripleGrace > 0;
-    }
-
-    // Player bounds
-    const dogLeft   = dog.x - dog.w/2;
-    const dogRight  = dog.x + dog.w/2;
-    const dogTop    = dog.y - dog.h/2;
-    const dogBottom = dog.y + dog.h/2;
-
-    let hitRect = null;
-
-    for (const p of poops){
-      // Poo rect (center x, bottom y)
-      const pooLeft   = p.x - p.w/2;
-      const pooRight  = p.x + p.w/2;
-      const pooTop    = p.y - p.h;
-      const pooBottom = p.y;
-
-      // Expanded “super close” rect
-      const exLeft   = pooLeft   - EMERGENCY_PROXIMITY;
-      const exRight  = pooRight  + EMERGENCY_PROXIMITY;
-      const exTop    = pooTop    - EMERGENCY_PROXIMITY;
-      const exBottom = pooBottom + EMERGENCY_PROXIMITY;
-
-      // Overlap check
-      const overlaps =
-        dogRight  >= exLeft  &&
-        dogLeft   <= exRight &&
-        dogBottom >= exTop   &&
-        dogTop    <= exBottom;
-      if (!overlaps) continue;
-
-      // Record debug rect + arm grace
-      hitRect = { l: exLeft, t: exTop, r: exRight, b: exBottom };
-      tripleGrace = EMERGENCY_GRACE; // give a few frames to press
-      break;
-    }
-
-    if (hitRect){
-      if (debugSlices){
-        tripleFlash.show = 0.08; // ~5 frames
-        tripleFlash.rect = hitRect;
-      }
-      return true;
-    }
-
-    // If we just left the window, allow during grace
-    return tripleGrace > 0;
-  }
-
-  function doEmergencyTriple(){
-    // Promote to phase 3, give a jump with a slightly smaller hold window
-    jumpPhase = 3;
-    dog.vy = EMERGENCY_V0;
-    dog.onGround = false;
-    jumpHold = true;
-    holdTime = 0;
-
-    // Temporarily override the hold window just for this jump
-    // We'll swap it back in update() by keying off jumpPhase===3
-  }
-
-  // Update
-  function update(dt){
-    if(state!=='running') return;
-    t+=dt;
-    if (tripleGrace > 0) tripleGrace -= dt;
-    if (coyoteTimer > 0) coyoteTimer -= dt;
-    if (jumpBufferTimer > 0) jumpBufferTimer -= dt;
-
-    // Parallax motion
-    for (let c of clouds){ c.x -= (520 + t*34)*0.10*dt; if(c.x<-220){ c.x+=canvas.width+480; c.y=40+Math.random()*160; } }
-    for (let h of hillsBack){ h.x -= (520 + t*34)*0.16*dt; if(h.x<-520) h.x+=canvas.width+520; }
-    for (let h of hillsFront){ h.x -= (520 + t*34)*0.22*dt; if(h.x<-420) h.x+=canvas.width+420; }
-
-    // Speed + spawn tightening
-    speed += dt*34;
-    minGap = Math.max(0.35, minGap - dt*0.06);
-    maxGap = Math.max(minGap + 0.22, maxGap - dt*0.052);
-
-    // Spawning
-    spawnTimer += dt; if(spawnTimer >= nextGap){ spawnPoo(); spawnTimer=0; nextGap = rand(minGap, maxGap); }
-
-    // Physics
-    dog.vy += G*dt;
-    const holdCap = (jumpPhase === 1) ? HOLD_MAX_1
-                 : (jumpPhase === 2) ? HOLD_MAX_2
-                 : EMERGENCY_HOLD_MAX; // jumpPhase === 3
-    if(jumpHold && !dog.onGround && holdTime < holdCap && dog.vy < 0){ dog.vy -= 3000*dt; holdTime+=dt; }
-    dog.y += dog.vy*dt;
-
-    if(dog.y + dog.h/2 >= groundY){
-      dog.y = groundY - dog.h/2 + 6; // lowered 6px
-      dog.vy = 0;
-      const wasAir = !dog.onGround;
-      if(wasAir){ jumpsLeft = MAX_JUMPS; jumpPhase = 0; }
-      dog.onGround = true;
-      holdTime = 0;
-      tripleGrace = 0;
-      tripleFlash.show = 0;
-
-      // If a jump was buffered just before landing, auto-fire it
-      if (wasAir && jumpBufferTimer > 0){
-        jumpBufferTimer = 0;
-        setTimeout(()=>{ press(); }, 0);
-      }
-    } else {
-      // Just left ground? start coyote timer
-      if (dog.onGround){
-        dog.onGround = false;
-        coyoteTimer = COYOTE_TIME;
-      }
-    }
-
-    // Move obstacles
-    for(const p of poops){ p.x -= speed*dt; p.a += dt*1.8; }
-    poops = poops.filter(p => p.x + p.w > 0);
-
-    // Collisions (forgiving)
-    const insetDog   = 0.14; // 14% shrink
-    const insetPoo   = 0.12;
-
-    const dogL = dog.x - dog.w*0.5 + dog.w*insetDog;
-    const dogR = dog.x + dog.w*0.5 - dog.w*insetDog;
-    const dogT = dog.y - dog.h*0.5 + dog.h*insetDog;
-    const dogB = dog.y + dog.h*0.5 - dog.h*insetDog;
-
-    for(const p of poops){
-      const pooL = p.x - p.w*0.5 + p.w*insetPoo;
-      const pooR = p.x + p.w*0.5 - p.w*insetPoo;
-      const pooT = p.y - p.h       + p.h*insetPoo;
-      const pooB = p.y             - p.h*insetPoo;
-
-      if (dogL < pooR && dogR > pooL && dogT < pooB && dogB > pooT){
-        return gameOver();
-      }
-    }
-
-    // Score
-    score += Math.floor(dt*100);
-  }
-
-  // Draw helpers
-  function drawHills(list, color){
-    ctx.fillStyle=color;
-    for (let h of list){
-      ctx.beginPath();
-      ctx.moveTo(h.x-320, groundY);
-      ctx.quadraticCurveTo(h.x, groundY-h.h, h.x+320, groundY);
-      ctx.closePath(); ctx.fill();
-    }
-  }
-  function drawSky(){
-    const x=sun.x(), y=sun.y(), r=sun.r;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r*3);
-    g.addColorStop(0, 'rgba(255,247,178,0.9)');
-    g.addColorStop(1, 'rgba(255,247,178,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*3,0,Math.PI*2); ctx.fill();
-    for (let c of clouds){
-      ctx.fillStyle='rgba(255,255,255,0.95)';
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, c.r, 0, Math.PI*2);
-      ctx.arc(c.x+c.r*0.9, c.y- c.r*0.5, c.r*0.85, 0, Math.PI*2);
-      ctx.arc(c.x+c.r*1.8, c.y, c.r*1.1, 0, Math.PI*2);
-      ctx.arc(c.x+c.r*0.9, c.y+c.r*0.5, c.r*0.9, 0, Math.PI*2);
-      ctx.fill();
-    }
-    drawHills(hillsBack, getComputedStyle(document.documentElement).getPropertyValue('--hillBack').trim()||'#c8d4e7');
-    drawHills(hillsFront,getComputedStyle(document.documentElement).getPropertyValue('--hillFront').trim()||'#b6c9e3');
-  }
-  function drawGround(){
-    const base = getComputedStyle(document.documentElement).getPropertyValue('--groundBase').trim()||'#dfd3b9';
-    const shade= getComputedStyle(document.documentElement).getPropertyValue('--groundShade').trim()||'#c9b99a';
-    const grd = ctx.createLinearGradient(0,  groundY, 0, canvas.height);
-    grd.addColorStop(0, shade); grd.addColorStop(1, base);
- ctx.fillStyle=grd; ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
-
-
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--grass').trim()||'#8fbe63';
-    ctx.fillRect(0, groundY-8, canvas.width, 8);
-
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--path').trim()||'#b49a77';
-    const step=28, off=(t*140)%step;
-    for(let x=-step;x<canvas.width+step;x+=step) ctx.fillRect(Math.floor(x-off), groundY+10, 14, 6);
-
-    const seed = Math.floor(t*2);
-    const shrubSpacing = 120;
-    const shrubCount = Math.ceil((canvas.width + shrubSpacing) / shrubSpacing) + 1;
-
-    const phase = (seed * 53) % shrubSpacing;
-    const drift = (t * 60) % shrubSpacing;
-
-    // tiny deterministic "random"
-    const rand = (n) => {
-      const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
-      return s - Math.floor(s);
+  function spawnMover(width,y){
+    // Slight global difficulty growth
+    const diff = 1 + Math.min(0.8, score*0.02);
+    mover={
+      x: Math.random()<0.5 ? 0 : CW-width,
+      y,
+      w: width,
+      dir: Math.random()<0.5 ? 1 : -1,
+      color: colorAt(blocks.length),
+      hspd: rnd(H_MIN,H_MAX) * diff,         // horizontal speed
+      vspd: rnd(V_MIN,V_MAX) * diff,         // drop speed
+      pulseAmp: Math.random()*PULSE_MAX,
+      pulsePhase: Math.random()*Math.PI*2
     };
-
-    for (let i = 0; i < shrubCount; i++) {
-      const gx = (i * shrubSpacing + phase + drift) % (canvas.width + shrubSpacing) - shrubSpacing / 2;
-      const gy = groundY - 8;
-
-      // stable per-shrub variation while it’s on screen
-      const worldIndex = i + Math.floor((phase + drift) / shrubSpacing);
-
-      const hScale = 0.60 + rand(worldIndex) * 1.00;        // 0.60–1.60 (much wider)
-      const tilt   = (rand(worldIndex + 0.5) - 0.5) * 0.60; // bigger lean
-
-      ctx.save();
-      ctx.translate(gx, gy);
-      ctx.rotate(tilt);
-
-      ctx.strokeStyle = '#2f6d1f';
-      ctx.lineWidth = 2 * dpr;
-
-      const blade1 = 10 * hScale;
-      const blade2 = 12 * hScale;
-
-      // left blade
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.quadraticCurveTo(6 * hScale, -blade1, 2 * hScale, -2 * hScale);
-
-      // right blade
-      ctx.moveTo(10 * hScale, 0);
-      ctx.quadraticCurveTo(16 * hScale, -blade2, 12 * hScale, -2 * hScale);
-      ctx.stroke();
-
-      // no flowers on shrubs
-
-      ctx.restore();
-    }
-  }
-  function drawPoo(p){
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.fillStyle='rgba(0,0,0,.18)';
-    ctx.beginPath();
-    ctx.ellipse(0, -6, p.w*0.42, 7, 0, 0, Math.PI*2);
-    ctx.fill();
-
-    if (foodReady){
-      const iw = foodImg.naturalWidth || foodImg.width || 1;
-      const ih = foodImg.naturalHeight || foodImg.height || 1;
-      const aspect = ih / iw;
-      const targetW = p.w * 2.2;
-      const targetH = targetW * aspect;
-      const wobble = Math.sin(p.a * 0.8) * 0.08;
-      ctx.rotate(wobble);
-      const yOffset = -Math.max(targetH, p.h * 0.95) + 6; // tiny visual drop
-      ctx.drawImage(foodImg, -targetW/2, yOffset, targetW, targetH);
-    } else {
-      ctx.fillStyle = '#888';
-      ctx.fillRect(-p.w*0.5, -p.h, p.w, p.h);
-    }
-    ctx.restore();
-  }
-  function drawDog(){
-    if(!cleanSprite){ return; }
-    const tilt = Math.max(-0.12, Math.min(0.16, dog.vy/1600));
-    ctx.save(); ctx.translate(dog.x, dog.y); ctx.rotate(tilt);
-    const fps = 6; dog.frame = (dog.frame + fps/60) % totalFrames;
-    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-
-    const { sx, sy, sw, sh } = frameRect(frameIndex);
-    ctx.drawImage(cleanSprite, sx, sy, sw, sh, -dog.w*0.5, -dog.h*0.5, dog.w, dog.h);
-    ctx.restore();
-  }
-
-  // Debug overlay (toggle with D)
-  function drawDebug(){
-    if (!cleanSprite) return;
-    ctx.save();
-
-    // Banner
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(8, 8, 290, 26);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#fff';
-    ctx.font = `${14*dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
-    ctx.fillText('DEBUG: slice overlay ON (press D)', 14, 26);
-
-    // Dog bounds
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 2*dpr;
-    ctx.strokeRect(dog.x - dog.w/2, dog.y - dog.h/2, dog.w, dog.h);
-
-    // Sprite sheet mini preview with grid + current frame (4×2, 384×512)
-    const padX = 10, padY = 42;
-    const sheetW = Math.min(260, canvas.width * 0.32);
-    const scale  = sheetW / cleanSprite.width; // cleanSprite should be 1024 wide
-    const sheetH = cleanSprite.height * scale; // 352 high
-    ctx.drawImage(cleanSprite, padX, padY, sheetW, sheetH);
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(255,0,0,0.75)';
-    ctx.lineWidth = 1*dpr;
-    for (let c = 1; c < cols; c++){
-      const x = padX + Math.round((c * frameW) * scale);
-      ctx.beginPath(); ctx.moveTo(x, padY); ctx.lineTo(x, padY + sheetH); ctx.stroke();
-    }
-    for (let r = 1; r < rows; r++){
-      const y = padY + Math.round((r * frameH) * scale);
-      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(padX + sheetW, y); ctx.stroke();
-    }
-
-    // Highlight current frame
-    const frameIndex = dog.onGround ? Math.floor(dog.frame) : 2;
-    const sx = (frameIndex % cols) * frameW;
-    const sy = Math.floor(frameIndex / cols) * frameH;
-    ctx.strokeStyle = 'yellow';
-    ctx.lineWidth = 2*dpr;
-    ctx.strokeRect(padX + sx * scale, padY + sy * scale, frameW * scale, frameH * scale);
-
-    // Blue circle: static triple-jump proximity bubble around every poo
-    for (const p of poops){
-      const cx = p.x;
-      const cy = p.y - p.h/2;
-      const R  = EMERGENCY_PROXIMITY;
-
-      ctx.save();
-      ctx.lineWidth = 3 * dpr;
-      ctx.strokeStyle = '#1e88ff';
-      ctx.globalAlpha = 0.95;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.globalAlpha = 0.10; // lighter fill since it's always visible
-      ctx.fillStyle = '#1e88ff';
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    ctx.restore();
-  }
-
-  function render(){
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    drawSky(); drawGround();
-    for(const p of poops) drawPoo(p);
-    drawDog();
-    updateHud();
-    if (debugSlices) drawDebug();
-  }
-  function updateHud(){ scoreHud.textContent = `Score 🦴: ${score} • Best: ${best}`; }
-
-  function loop(ts){
-    const now = ts/1000; if(!loop.last) loop.last = now;
-    const dt = Math.max(0, Math.min(now - loop.last, 1/20)); loop.last = now;
-    if(state==='running' && !isPaused){ update(dt); }
-    render(); requestAnimationFrame(loop);
+    state='moving';
   }
 
   // Input
-  function press(){
-    if(state==='intro'){ start(); return; }
-    if(state==='over'){ reset(); return; }
-    if(state!=='running'){ return; }
+  function drop(){ if(over||paused||!mover||state!=='moving')return; state='dropping'; }
+  window.addEventListener('keydown', e=>{
+    if(e.code==='Space'){ e.preventDefault(); ensureAudio(); over?reset():drop(); }
+    else if(e.code==='KeyR'){ e.preventDefault(); reset(); }
+    else if(e.code==='KeyP'){ e.preventDefault(); togglePause(); }
+    else if(e.code==='KeyM'){ e.preventDefault(); muted=!muted; muteBtn.textContent=muted?'🔇':'🔊'; }
+  });
+  canvas.addEventListener('pointerdown', ()=>{ ensureAudio(); over?reset():drop(); });
 
-    // Resume from pause with any press
-    if (isPaused){ setPaused(false); return; }
-
-    // If within buffer window while airborne, remember this press
-    if (!dog.onGround){
-      jumpBufferTimer = JUMP_BUFFER;
-    }
-
-    // Ground or coyote → normal jump route
-    const canGroundJump = dog.onGround || coyoteTimer > 0;
-    if(canGroundJump){
-      // reset air state for consistent double-jump after coyote
-      dog.onGround = true; coyoteTimer = 0;
-      jumpsLeft = MAX_JUMPS;
-    }
-
-    if(canGroundJump || jumpsLeft > 0){
-      doJump();
-      if(!dog.onGround){ jumpsLeft--; } else { jumpsLeft = MAX_JUMPS - 1; }
-      return;
-    }
-
-    // No jumps left? try emergency triple
-    if (canEmergencyTriple()){
-      doEmergencyTriple();
-      return;
-    }
+  function togglePause(){
+    if(over) return;
+    paused=!paused;
+    pauseBtn.textContent=paused?'Resume':'Pause';
+    if(!paused){ lastTime=0; }
   }
 
-  function release(){ jumpHold=false; }
-  startBtn.addEventListener('click', start);
-  restartBtn.addEventListener('click', reset);
-  jumpBtn.addEventListener('click', press);
-  debugBtn.addEventListener('click', ()=>{
-    debugSlices = !debugSlices;
-    localStorage.setItem('bru_debug', debugSlices ? '1' : '0');
-    console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
-  });
-  canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); }, {passive:false});
-  canvas.addEventListener('pointerup',   e=>{ e.preventDefault(); release(); }, {passive:false});
+  // Off-cuts + particles
+  function addShard(x,y,w,h,vy=0,life=1,type='chunk',color='white'){ shards.push({x,y,w,h,vy,life,type,color}); }
+  function burst(x,y,color){ for(let i=0;i<10;i++){ addShard(x,y,3,3,0,1,'particle',color); } }
 
-  // Keyboard: Space to jump, P to pause/resume
-  window.addEventListener('keydown', e=>{
-    const k = (e.code || e.key || '').toLowerCase();
-    if(k==='space'){ e.preventDefault(); press(); return; }
-    if(k==='keyp' || k==='p'){
-      if(state==='running'){
-        setPaused(!isPaused);
-        e.preventDefault();
+  // Update
+  function update(dt){
+    if(over||paused) return;
+
+    timeSec += dt;
+
+    // camera
+    const topY = Math.min(mover?mover.y:Infinity, blocks[blocks.length-1].y);
+    const desired = Math.max(0, TOP_MARGIN - topY);
+    camY += (desired - camY) * Math.min(1, 8*dt);
+
+    // shards
+    for(let i=shards.length-1;i>=0;i--){
+      const s=shards[i];
+      if(s.type==='chunk'){ s.vy += GRAVITY; s.y += s.vy; s.life -= dt*0.4; }
+      else{ s.y += 40*dt*(Math.random()*2+0.5); s.life -= dt*1.4; }
+      if(s.life<=0 || s.y-camY>CH+60) shards.splice(i,1);
+    }
+
+    if(!mover) return;
+
+    if(state==='moving'){
+      // wobble
+      const wobble = 1 + mover.pulseAmp * Math.sin(2*timeSec + mover.pulsePhase);
+      const spd = mover.hspd * wobble;
+      mover.x += mover.dir * spd * dt * 60;
+      if(mover.x<=0){mover.x=0; mover.dir=1;}
+      if(mover.x+mover.w>=CW){mover.x=CW-mover.w; mover.dir=-1;}
+    } else if(state==='dropping'){
+      const targetY = blocks[blocks.length-1].y - BLOCK_H;
+      mover.y += mover.vspd * dt * 60;
+      if(mover.y >= targetY){
+        mover.y = targetY;
+        const prev = blocks[blocks.length-1];
+        const left = Math.max(mover.x, prev.x);
+        const right= Math.min(mover.x+mover.w, prev.x+prev.w);
+        let overlap = right - left;
+
+        const perfect = (Math.abs(mover.x - prev.x) <= PERFECT_EPS && Math.abs(mover.w - prev.w) <= PERFECT_EPS);
+        if(perfect){ mover.x=prev.x; mover.w=prev.w; overlap=prev.w; }
+
+        if (overlap <= 0){
+          buzz(60); sfx(120,120,'sawtooth',0.05);
+          gameOver();
+        } else {
+          if(!perfect){
+            if(mover.x < prev.x){
+              const w = prev.x - mover.x; if(w>2) addShard(mover.x, mover.y, w, BLOCK_H, -2, 1, 'chunk', mover.color);
+            } else if(mover.x + mover.w > prev.x + prev.w){
+              const w = (mover.x+mover.w) - (prev.x+prev.w); if(w>2) addShard(prev.x+prev.w, mover.y, w, BLOCK_H, -2, 1, 'chunk', mover.color);
+            }
+          }
+          mover.x = left; mover.w = overlap;
+          blocks.push({x:mover.x, y:mover.y, w:mover.w});
+          score += 1; scoreEl.textContent=String(score);
+
+          if(perfect){
+            streak += 1;
+            mover.w = clamp(mover.w + WIDEN_PERFECT, 10, prev.w);
+            burst(mover.x + mover.w/2, mover.y - 6, mover.color);
+            sfx(660,80,'triangle',0.04); buzz(20);
+          } else { streak = 0; sfx(360,80,'square',0.03); }
+
+          spawnMover(mover.w, mover.y - BLOCK_H);
+        }
       }
     }
-  }, {passive:false});
-window.addEventListener('keyup', e=>{
-  const k = (e.code || e.key || '').toLowerCase();
-  if(k === 'space'){ e.preventDefault(); release(); }
-}, {passive:false});
-
-
-  // Robust D toggle: single listener + no repeats
-  let dPressed = false;
-  function debugKeyHandler(e){
-    const k = (e.code || e.key || '').toLowerCase();
-    if (k === 'keyd' || k === 'd'){
-      if (e.repeat || dPressed) return; // prevent double toggle
-      e.preventDefault();
-      dPressed = true;
-      debugSlices = !debugSlices;
-      localStorage.setItem('bru_debug', debugSlices ? '1' : '0');
-      console.log('DEBUG overlay:', debugSlices ? 'ON' : 'OFF');
-    }
   }
-  window.addEventListener('keydown', debugKeyHandler, { capture: true });
-  window.addEventListener('keyup', (e)=>{
-    const k = (e.code || e.key || '').toLowerCase();
-    if (k === 'keyd' || k === 'd') dPressed = false;
-  }, { capture: true });
 
-  // Auto-pause on tab switch, tap to resume
-  document.addEventListener('visibilitychange', ()=>{
-    if (document.hidden && state==='running') setPaused(true);
-  });
-  canvas.addEventListener('pointerdown', ()=>{
-    if (state==='running' && isPaused) setPaused(false);
-  }, {passive:true});
+  function gameOver(){
+    over=true; state='over';
+    finalScoreEl.textContent=String(score);
+    if(score>best){ best=score; localStorage.setItem('ts_best', String(best)); }
+    bestEl.textContent=best; finalBestEl.textContent=best;
+    overEl.classList.remove('hidden');
+  }
 
-  // Boot
-  reset(); requestAnimationFrame(loop);
+  // Draw
+  function draw(){
+    ctx.clearRect(0,0,CW,CH);
+
+    // grid
+    ctx.globalAlpha=.08; ctx.lineWidth=1; ctx.strokeStyle='#93c5fd';
+    for(let i=0;i<5;i++){ const y=Math.floor(CH-(i+1)*80+(camY%80)); ctx.beginPath(); ctx.moveTo(0,y+.5); ctx.lineTo(CW,y+.5); ctx.stroke(); }
+    ctx.globalAlpha=1;
+
+    // guides
+    const top = blocks[blocks.length-1];
+    if(top){
+      ctx.globalAlpha=.15; ctx.strokeStyle='#ffffff'; ctx.setLineDash([6,6]);
+      ctx.beginPath(); ctx.moveTo(top.x,0); ctx.lineTo(top.x,CH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(top.x+top.w,0); ctx.lineTo(top.x+top.w,CH); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha=1;
+    }
+
+    // placed
+    for(let i=0;i<blocks.length;i++){
+      const b=blocks[i], y=b.y - camY; if(y>CH) continue;
+      ctx.fillStyle = i===0 ? '#334155' : colorAt(i);
+      ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=10; rr(b.x,y,b.w,BLOCK_H,6); ctx.fill(); ctx.shadowBlur=0;
+    }
+
+    // mover
+    if(mover){
+      const y=mover.y - camY;
+      ctx.fillStyle=mover.color;
+      ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=10; rr(mover.x,y,mover.w,BLOCK_H,6); ctx.fill(); ctx.shadowBlur=0;
+      if(state==='moving'){ ctx.globalAlpha=.6; ctx.fillStyle='rgba(255,255,255,.2)'; rr(mover.x,y-6,mover.w,4,2); ctx.fill(); ctx.globalAlpha=1; }
+    }
+
+    // shards
+    for(const s of shards){
+      ctx.globalAlpha = clamp(s.life,0,1);
+      ctx.fillStyle = s.color || '#fff';
+      rr(s.x, s.y - camY, s.w, s.h, 2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // Loop
+  function loop(t){
+    if(!lastTime) lastTime=t;
+    const dt = paused ? 0 : Math.min(0.05,(t-lastTime)/1000);
+    lastTime=t;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  reset();
+  requestAnimationFrame(loop);
+
+  // Pause button
+  function togglePause(){
+    if(over) return;
+    paused=!paused;
+    pauseBtn.textContent=paused?'Resume':'Pause';
+    if(!paused){ lastTime=0; }
+  }
+  pauseBtn.addEventListener('click', togglePause);
 })();
 </script>
 </body>
