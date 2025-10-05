@@ -24,6 +24,8 @@
   .actions{display:flex; gap:.5rem; justify-content:center}
   .hidden{display:none}
   .pill{font-size:.85rem; padding:.15rem .45rem; border-radius:.5rem; background:rgba(56,189,248,.15); border:1px solid rgba(56,189,248,.35)}
+  .ilist{color:var(--muted); text-align:left; margin:.25rem 0 .9rem; line-height:1.4; max-width:22rem}
+  .ilist li{margin:.25rem 0}
 </style>
 </head>
 <body>
@@ -44,6 +46,21 @@
 
     <canvas id="game" aria-label="Tower Stacker game area"></canvas>
 
+    <!-- Intro instructions -->
+    <div id="intro" class="overlay" role="dialog" aria-modal="true">
+      <div class="card">
+        <div class="title">How to play</div>
+        <ul class="ilist">
+          <li>Tap or press Space to drop the block.</li>
+          <li>Stack on the block below. Off-cuts fall away.</li>
+          <li>Perfect alignments regain a bit of width.</li>
+          <li>Block speeds change randomly each turn.</li>
+        </ul>
+        <div class="actions"><button id="startBtn">Start</button></div>
+      </div>
+    </div>
+
+    <!-- Game Over -->
     <div id="over" class="overlay hidden" role="dialog" aria-modal="true">
       <div class="card">
         <div class="title">Game Over</div>
@@ -76,6 +93,8 @@
   const finalBestEl  = document.getElementById('finalBest');
   const pauseBtn = document.getElementById('pauseBtn');
   const muteBtn  = document.getElementById('muteBtn');
+  const startBtn = document.getElementById('startBtn');
+  const introEl  = document.getElementById('intro');
   document.getElementById('restartBtn').addEventListener('click', reset);
   document.getElementById('playAgain').addEventListener('click', reset);
 
@@ -100,11 +119,12 @@
   const GRAVITY=0.6;
 
   // Random speed ranges (px/frame @60fps, scaled by dt*60)
-  const H_MIN=2.6, H_MAX=8.8;    // increased max horizontal speed
-  const V_MIN=26,  V_MAX=60;     // increased max drop speed
+  const H_MIN=2.6, H_MAX=8.8;   // horizontal
+  const V_MIN=26,  V_MAX=60;    // vertical
   const PULSE_MAX=0.28;
 
   // State
+  let started=false;
   let blocks=[], mover=null, camY=0, score=0, best=Number(localStorage.getItem('ts_best')||0);
   let over=false, paused=false, state='idle', lastTime=0, timeSec=0, streak=0;
   let shards=[];
@@ -115,6 +135,16 @@
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const rr=(x,y,w,h,r)=>{const t=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);ctx.beginPath();ctx.moveTo(x+t,y);ctx.arcTo(x+w,y,x+w,y+h,t);ctx.arcTo(x+w,y+h,x,y+h,t);ctx.arcTo(x,y+h,x,y,t);ctx.arcTo(x,y,x+w,y,t);ctx.closePath();};
   const rnd=(a,b)=>a + Math.random()*(b-a);
+
+  // Start flow
+  function startGame(){
+    if(started) return;
+    started=true;
+    introEl.classList.add('hidden');
+    ensureAudio();
+    reset();
+  }
+  startBtn.addEventListener('click', startGame);
 
   // Spawn/reset
   function reset(){
@@ -127,18 +157,16 @@
     spawnMover(baseW, baseY-BLOCK_H);
     lastTime=0; timeSec=0;
   }
-
   function spawnMover(width,y){
-    // Slight global difficulty growth
-    const diff = 1 + Math.min(0.8, score*0.02);
+    const diff = 1 + Math.min(0.8, score*0.02); // gentle global increase
     mover={
       x: Math.random()<0.5 ? 0 : CW-width,
       y,
       w: width,
       dir: Math.random()<0.5 ? 1 : -1,
       color: colorAt(blocks.length),
-      hspd: rnd(H_MIN,H_MAX) * diff,         // horizontal speed
-      vspd: rnd(V_MIN,V_MAX) * diff,         // drop speed
+      hspd: rnd(H_MIN,H_MAX) * diff,
+      vspd: rnd(V_MIN,V_MAX) * diff,
       pulseAmp: Math.random()*PULSE_MAX,
       pulsePhase: Math.random()*Math.PI*2
     };
@@ -146,21 +174,23 @@
   }
 
   // Input
-  function drop(){ if(over||paused||!mover||state!=='moving')return; state='dropping'; }
+  function drop(){ if(!started) return startGame(); if(over||paused||!mover||state!=='moving')return; state='dropping'; }
   window.addEventListener('keydown', e=>{
-    if(e.code==='Space'){ e.preventDefault(); ensureAudio(); over?reset():drop(); }
-    else if(e.code==='KeyR'){ e.preventDefault(); reset(); }
-    else if(e.code==='KeyP'){ e.preventDefault(); togglePause(); }
+    if(e.code==='Space'){ e.preventDefault(); if(!started) return startGame(); over?reset():drop(); }
+    else if(e.code==='Enter'){ if(!started){ e.preventDefault(); startGame(); } }
+    else if(e.code==='KeyR'){ e.preventDefault(); if(started) reset(); }
+    else if(e.code==='KeyP'){ e.preventDefault(); if(started) togglePause(); }
     else if(e.code==='KeyM'){ e.preventDefault(); muted=!muted; muteBtn.textContent=muted?'🔇':'🔊'; }
   });
-  canvas.addEventListener('pointerdown', ()=>{ ensureAudio(); over?reset():drop(); });
+  canvas.addEventListener('pointerdown', ()=>{ if(!started) return startGame(); over?reset():drop(); });
 
   function togglePause(){
-    if(over) return;
+    if(!started || over) return;
     paused=!paused;
     pauseBtn.textContent=paused?'Resume':'Pause';
     if(!paused){ lastTime=0; }
   }
+  pauseBtn.addEventListener('click', togglePause);
 
   // Off-cuts + particles
   function addShard(x,y,w,h,vy=0,life=1,type='chunk',color='white'){ shards.push({x,y,w,h,vy,life,type,color}); }
@@ -168,7 +198,7 @@
 
   // Update
   function update(dt){
-    if(over||paused) return;
+    if(!started || over || paused) return;
 
     timeSec += dt;
 
@@ -188,7 +218,6 @@
     if(!mover) return;
 
     if(state==='moving'){
-      // wobble
       const wobble = 1 + mover.pulseAmp * Math.sin(2*timeSec + mover.pulsePhase);
       const spd = mover.hspd * wobble;
       mover.x += mover.dir * spd * dt * 60;
@@ -295,18 +324,8 @@
     requestAnimationFrame(loop);
   }
 
-  // Start
-  reset();
+  // Start render loop only; game starts after Start button
   requestAnimationFrame(loop);
-
-  // Pause button
-  function togglePause(){
-    if(over) return;
-    paused=!paused;
-    pauseBtn.textContent=paused?'Resume':'Pause';
-    if(!paused){ lastTime=0; }
-  }
-  pauseBtn.addEventListener('click', togglePause);
 })();
 </script>
 </body>
