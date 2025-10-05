@@ -2,24 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta
-  name="viewport"
-  content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
-/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>Tower Stacker</title>
 <style>
   :root{--bg2:#111827;--ink:#e5e7eb;--muted:#9ca3af;--btn:#1f2937;--accent:#38bdf8;}
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
-  html,body{height:100%;margin:0;overflow:hidden; background:radial-gradient(120% 120% at 50% -10%, #1e293b 0%, var(--bg2) 60%, #0b1020 100%); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; touch-action:none; overscroll-behavior:none}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:radial-gradient(120% 120% at 50% -10%, #1e293b 0%, var(--bg2) 60%, #0b1020 100%); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
   .wrap{position:fixed; inset:0; display:grid; grid-template-rows:auto 1fr}
   header{display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.6rem .8rem; background:linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.1)); border-bottom:1px solid rgba(255,255,255,.06); backdrop-filter:blur(6px)}
   .left{display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap}
   .brand{font-weight:700}
   .hint{font-size:.85rem; color:var(--muted)}
   .stats{display:flex; gap:.6rem; align-items:center; flex-wrap:wrap}
-  button{appearance:none; border:1px solid rgba(255,255,255,.12); background:var(--btn); color:var(--ink); padding:.45rem .7rem; border-radius:.6rem; font-weight:600; cursor:pointer; touch-action:manipulation}
+  button{appearance:none; border:1px solid rgba(255,255,255,.12); background:var(--btn); color:var(--ink); padding:.45rem .7rem; border-radius:.6rem; font-weight:600; cursor:pointer}
   button:active{transform:translateY(1px)}
-  #game{width:100%; height:100%; display:block; background:linear-gradient(180deg, rgba(56,189,248,.08), rgba(56,189,248,0) 30%); touch-action:none}
+  #game{width:100%; height:100%; display:block; background:linear-gradient(180deg, rgba(56,189,248,.08), rgba(56,189,248,0) 30%)}
   .overlay{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none}
   .card{pointer-events:auto; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:1rem 1.25rem; text-align:center; backdrop-filter:blur(8px); box-shadow:0 20px 40px rgba(0,0,0,.45)}
   .title{font-size:1.25rem; font-weight:800; margin:.25rem 0 .5rem}
@@ -75,18 +72,6 @@
 
 <script>
 (() => {
-  // Hard-block zoom gestures (iOS Safari + desktop trackpads)
-  document.addEventListener('gesturestart', e=>e.preventDefault(), {passive:false});
-  document.addEventListener('gesturechange', e=>e.preventDefault(), {passive:false});
-  document.addEventListener('gestureend', e=>e.preventDefault(), {passive:false});
-  window.addEventListener('wheel', e=>{ if(e.ctrlKey) e.preventDefault(); }, {passive:false});
-  let lastTouchEnd=0;
-  document.addEventListener('touchend', e=>{
-    const now=Date.now();
-    if(now-lastTouchEnd<300) e.preventDefault(); // block double-tap zoom
-    lastTouchEnd=now;
-  }, {passive:false});
-
   // Canvas
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -196,7 +181,7 @@
     else if(e.code==='KeyR'){ e.preventDefault(); if(started) reset(); }
     else if(e.code==='KeyP'){ e.preventDefault(); if(started) togglePause(); }
     else if(e.code==='KeyM'){ e.preventDefault(); muted=!muted; muteBtn.textContent=muted?'🔇':'🔊'; }
-  }, {passive:false});
+  });
   canvas.addEventListener('pointerdown', ()=>{ if(!started) return startGame(); over?reset():drop(); });
 
   function togglePause(){
