@@ -7,7 +7,8 @@
 <style>
   :root{--bg2:#111827;--ink:#e5e7eb;--muted:#9ca3af;--btn:#1f2937;--accent:#38bdf8;}
   *{box-sizing:border-box}
-  html,body{height:100%;margin:0;background:radial-gradient(120% 120% at 50% -10%, #1e293b 0%, var(--bg2) 60%, #0b1020 100%); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+  html,body{height:100%;margin:0;background:radial-gradient(120% 120% at 50% -10%, #1e293b 0%, var(--bg2) 60%, #0b1020 100%); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
+    touch-action:none; overscroll-behavior:none;}
   .wrap{position:fixed; inset:0; display:grid; grid-template-rows:auto 1fr}
   header{display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.6rem .8rem; background:linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.1)); border-bottom:1px solid rgba(255,255,255,.06); backdrop-filter:blur(6px)}
   .left{display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap}
@@ -16,7 +17,7 @@
   .stats{display:flex; gap:.6rem; align-items:center; flex-wrap:wrap}
   button{appearance:none; border:1px solid rgba(255,255,255,.12); background:var(--btn); color:var(--ink); padding:.45rem .7rem; border-radius:.6rem; font-weight:600; cursor:pointer}
   button:active{transform:translateY(1px)}
-  #game{width:100%; height:100%; display:block; background:linear-gradient(180deg, rgba(56,189,248,.08), rgba(56,189,248,0) 30%)}
+  #game{width:100%; height:100%; display:block; background:linear-gradient(180deg, rgba(56,189,248,.08), rgba(56,189,248,0) 30%); touch-action:none}
   .overlay{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none}
   .card{pointer-events:auto; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:1rem 1.25rem; text-align:center; backdrop-filter:blur(8px); box-shadow:0 20px 40px rgba(0,0,0,.45)}
   .title{font-size:1.25rem; font-weight:800; margin:.25rem 0 .5rem}
@@ -72,16 +73,33 @@
 
 <script>
 (() => {
+  // Prevent pinch-zoom and ctrl+wheel zoom
+  document.addEventListener('gesturestart', e=>e.preventDefault());
+  document.addEventListener('gesturechange', e=>e.preventDefault());
+  document.addEventListener('gestureend', e=>e.preventDefault());
+  window.addEventListener('wheel', e=>{ if(e.ctrlKey) e.preventDefault(); }, {passive:false});
+
   // Canvas
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  let CW=0, CH=0, DPR=1;
+  let CW=0, CH=0, DPR=1, ZOOM=1;
+
+  const isCoarse = () => window.matchMedia('(pointer: coarse)').matches;
+
+  function computeZoom(){
+    // Slight zoom-out on mobile/coarse pointers
+    return isCoarse() ? 0.88 : 1.0; // smaller = more world visible
+  }
+
   function resize(){
     DPR=Math.min(window.devicePixelRatio||1,2);
+    ZOOM=computeZoom();
     CW=window.innerWidth; CH=window.innerHeight-document.querySelector('header').offsetHeight;
-    canvas.width=Math.floor(CW*DPR); canvas.height=Math.floor(CH*DPR);
-    canvas.style.width=CW+'px'; canvas.style.height=CH+'px';
-    ctx.setTransform(DPR,0,0,DPR,0,0);
+    canvas.width=Math.floor(CW * DPR);
+    canvas.height=Math.floor(CH * DPR);
+    canvas.style.width=CW+'px';
+    canvas.style.height=CH+'px';
+    ctx.setTransform(DPR*ZOOM,0,0,DPR*ZOOM,0,0);
   }
   window.addEventListener('resize', resize, {passive:true}); resize();
 
@@ -210,7 +228,7 @@
     // shards
     for(let i=shards.length-1;i>=0;i--){
       const s=shards[i];
-      if(s.type==='chunk'){ s.vy += GRAVITY; s.y += s.vy; s.life -= dt*0.4; }
+      if(s.type==='chunk'){ s.vy += 0.6; s.y += s.vy; s.life -= dt*0.4; }
       else{ s.y += 40*dt*(Math.random()*2+0.5); s.life -= dt*1.4; }
       if(s.life<=0 || s.y-camY>CH+60) shards.splice(i,1);
     }
@@ -224,7 +242,7 @@
       if(mover.x<=0){mover.x=0; mover.dir=1;}
       if(mover.x+mover.w>=CW){mover.x=CW-mover.w; mover.dir=-1;}
     } else if(state==='dropping'){
-      const targetY = blocks[blocks.length-1].y - BLOCK_H;
+      const targetY = blocks[blocks.length-1].y - 22;
       mover.y += mover.vspd * dt * 60;
       if(mover.y >= targetY){
         mover.y = targetY;
@@ -233,7 +251,7 @@
         const right= Math.min(mover.x+mover.w, prev.x+prev.w);
         let overlap = right - left;
 
-        const perfect = (Math.abs(mover.x - prev.x) <= PERFECT_EPS && Math.abs(mover.w - prev.w) <= PERFECT_EPS);
+        const perfect = (Math.abs(mover.x - prev.x) <= 3 && Math.abs(mover.w - prev.w) <= 3);
         if(perfect){ mover.x=prev.x; mover.w=prev.w; overlap=prev.w; }
 
         if (overlap <= 0){
@@ -242,9 +260,9 @@
         } else {
           if(!perfect){
             if(mover.x < prev.x){
-              const w = prev.x - mover.x; if(w>2) addShard(mover.x, mover.y, w, BLOCK_H, -2, 1, 'chunk', mover.color);
+              const w = prev.x - mover.x; if(w>2) addShard(mover.x, mover.y, w, 22, -2, 1, 'chunk', mover.color);
             } else if(mover.x + mover.w > prev.x + prev.w){
-              const w = (mover.x+mover.w) - (prev.x+prev.w); if(w>2) addShard(prev.x+prev.w, mover.y, w, BLOCK_H, -2, 1, 'chunk', mover.color);
+              const w = (mover.x+mover.w) - (prev.x+prev.w); if(w>2) addShard(prev.x+prev.w, mover.y, w, 22, -2, 1, 'chunk', mover.color);
             }
           }
           mover.x = left; mover.w = overlap;
@@ -253,12 +271,12 @@
 
           if(perfect){
             streak += 1;
-            mover.w = clamp(mover.w + WIDEN_PERFECT, 10, prev.w);
+            mover.w = clamp(mover.w + 4, 10, prev.w);
             burst(mover.x + mover.w/2, mover.y - 6, mover.color);
             sfx(660,80,'triangle',0.04); buzz(20);
           } else { streak = 0; sfx(360,80,'square',0.03); }
 
-          spawnMover(mover.w, mover.y - BLOCK_H);
+          spawnMover(mover.w, mover.y - 22);
         }
       }
     }
@@ -294,14 +312,14 @@
     for(let i=0;i<blocks.length;i++){
       const b=blocks[i], y=b.y - camY; if(y>CH) continue;
       ctx.fillStyle = i===0 ? '#334155' : colorAt(i);
-      ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=10; rr(b.x,y,b.w,BLOCK_H,6); ctx.fill(); ctx.shadowBlur=0;
+      ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=10; rr(b.x,y,b.w,22,6); ctx.fill(); ctx.shadowBlur=0;
     }
 
     // mover
     if(mover){
       const y=mover.y - camY;
       ctx.fillStyle=mover.color;
-      ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=10; rr(mover.x,y,mover.w,BLOCK_H,6); ctx.fill(); ctx.shadowBlur=0;
+      ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=10; rr(mover.x,y,mover.w,22,6); ctx.fill(); ctx.shadowBlur=0;
       if(state==='moving'){ ctx.globalAlpha=.6; ctx.fillStyle='rgba(255,255,255,.2)'; rr(mover.x,y-6,mover.w,4,2); ctx.fill(); ctx.globalAlpha=1; }
     }
 
@@ -324,7 +342,7 @@
     requestAnimationFrame(loop);
   }
 
-  // Start render loop only; game starts after Start button
+  // Start render; actual game starts after Start
   requestAnimationFrame(loop);
 })();
 </script>
